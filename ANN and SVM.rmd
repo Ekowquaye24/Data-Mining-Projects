@@ -1,0 +1,1115 @@
+---
+output: 
+  pdf_document:
+    keep_tex: true
+    fig_caption: true
+    latex_engine: pdflatex
+    number_sections: true
+    toc: true
+title: "Artificial Neural Networks (ANN) and Support Vector Machines (SVM)"
+author: 
+- Quaye E. George
+- gequaye@miners.utep.edu
+date: "Due: 12/07/2020"
+geometry: margin=1in
+fontsize: 12pt
+spacing: double
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsfonts}
+- \usepackage{amsthm}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhf{}
+- \rhead{George Quaye}
+- \lhead{Final Project for STAT 5494}
+- \cfoot{\thepage}
+
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\newpage
+
+\section{Data Preparation}
+
+Bring in the data D and name it as, say, hr. Change the categorical     
+variable salary in the data set to ordinal:          
+
+```{r}
+dat <- read.csv("hcvdat0.csv", header=TRUE, colClasses=c("NULL", rep(NA, 13))) 
+dim(dat)
+head(dat) 
+anyNA(dat)
+```
+       
+                  
+The data set has $615$ observations with $13$ variables. Missing Values was found to be present in the data set.   
+         
+         
+\subsection{Modification of the target variable}                
+a)    Modify the target variable Category into binary so that Category = 0 if it falls into either "0=Blood Donor" or "0s=suspect Blood Donor" and 1 if it falls into any other category except being missing, in which case we keep it as is.                 
+```{r}
+dat$Category<-ifelse(dat$Category=="0=Blood Donor" | dat$Category=="0s=suspect Blood Donor", 0,1)
+```
+      
+                   
+The target variable "Category" has been categorize into $0$ and $1$ indicating healthy donors and unhealthy donors.     
+             
+                     
+\subsection{Distribution of the target variable}
+b)    Obtain the frequency distribution of Category. Do we have an imbalanced classification problem? Any missing value in Category? If so, let’s remove these observations or rows.                 
+```{r}
+library(questionr) 
+freq(dat$Category, total=T)
+
+library(ggplot2) 
+c<-ggplot(dat,aes(Category)) + geom_bar() 
+c
+
+unique(dat$Category) ### Checking for missing values
+```
+        
+               
+A bar plot is drawn to check the distribution of the target variable ‘Category’ and to ascertain whether or not there exist a balance or unbalanced classification, given the output above there appears to be an unbalanced classification with "0" having a by far higher percentage then 1 shown by the bars from the plot. Also the table indicates that $87.8$% of the total observations falls under the healthy donors whiles $12.2$%  are unhealthy donors.                  
+   
+         
+Note: This unbalanced classifiers can be balanced. The main objective of balancing classes is to either increasing the frequency of the minority class or decreasing the frequency of the majority class. This is done in order to obtain approximately the same number of instances for both the classes. Noticeable methods are Random Under-Sampling, Random Over-Sampling, Cluster-Based Over Sampling, Bagging Based techniques for imbalanced data etc.                    
+     
+                    
+```{r}
+#Mising values in Category
+unique(is.na(dat$Category)) 
+```
+      
+                        
+Checking for missing values in "Category", the output FALSE above indicates that there is no missing value in the target variable(category).           
+                    
+      
+\subsection{Inpect and impute missing  values in the predictors}
+Inspect for the missing values in the predictors. Impute the missing values if any. Note that you are not supposed to use information in the target variable when performing the imputation.            
+     
+```{r}
+missing_rate <- data.frame()
+nr <- NROW(dat)
+nc <- NCOL(dat)
+Var_name <- variable.names(dat)
+for (i in 1:nc) {
+  na <- sum(is.na(dat[,i]))
+  na_rate <- (na/nr)*100
+  result <- list(Variable = Var_name[i],Number_Missing = na, Missing_Rate = na_rate)
+  missing_rate <- rbind(missing_rate, result, stringsAsFactors = F)
+} 
+(missing_rate)
+```
+     
+                          
+Given the table displayed above there appears some missing values with their corresponding missing percentages, noticeably is "ALP" with $18$ missing observations making $2.927$%.    
+          
+        
+```{r, message=FALSE}
+#Missing  value imputation
+set.seed(123)
+suppressPackageStartupMessages(library(mice)) 
+data_imputed <- mice(dat[,-c(1)], printFlag = F)
+data <- complete(data_imputed, 1) 
+data1 <- as.data.frame(data) 
+data<-cbind("Category"=dat$Category,data1)
+rm(data_imputed)
+```
+      
+                         
+Values for all missing values is imputed using the package MICE. It is observed that out of the 13 variables , none of them have no missing values after the imputation.                    
+                      
+               
+\subsection{Changing data matrix into numeric}
+Use model.matrix() to change the data matrix into numeric. Dummy variables will be automatically created for each categorical predictor.          
+                 
+```{r}
+Model<-model.matrix(Category~.,data=data)
+tail(Model)
+```
+       
+                   
+The data Matrix called Model is created by using the model.matrix.
+                     
+\section{Exploratory Data Analysis}
+\subsection{Preliminary Statistical Analysis}
+a)    View the range and variations of the predictors. Is there a need to normalize them?                    
+```{r}
+# Check the type of our features. 
+str(data)
+```
+      
+                    
+The data has $11$ numeric variables, one interger variable and one categorical variable (sex).
+             
+               
+```{r}
+boxplot(data[, -c(1,3)], col = c(1:11), horizontal = F, ylim = c(1, 680), yaxs = "i")
+```  
+           
+                  
+Given the boxplot there appears to be unequal variations between the predictors variable and unequal range noticeably is the "CHOL", "GGT" and "CREA" hence scaling or normalization is necessary for some particular modelings approach.         
+              
+                         
+```{r}
+#Percentage of Blood Donors and those of Hepatitis C
+prop.table(table(data$Category))*100
+```
+             
+                                 
+Given the above output, it is observed that about 87.8049% of subjects are healthy donors and 12.1951% of subjects are unhealthy or Hepatitis C from the Category.       
+          
+                            
+\subsection{Association between the target and predictors}  
+b)    Use EDA techniques to explore the association between the target and predictors and identify those that are highly predictive of Hepatitis C incidence. Present at least THREE interesting findings and explain them with clear language.                
+           
+\subsection{Correlation Matrix and Heat Map}
+                 
+```{r, message=FALSE, warning=FALSE}
+#Correlation Matrix
+library(reshape2)
+library(ggplot2)
+cor_vars<-data[,c("Category","Age","ALB","ALP","ALT","AST","BIL",
+                  "CHE","CHOL","CREA","GGT","PROT")]
+cor(cor_vars)
+trans<-cor(cor_vars)
+melted_cormat <- melt(trans)
+
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+      
+           
+Given the correlation matrix output table, it is observed that;           
+                                                    
+i.    Category and AST are moderately positive correlated variables (0.62172398).\newline
+ii.   AST and GGT are moderately positive correlated variables (0.4913).\newline
+iii.  Category and GGT are moderately positive correlated variables (0.43768040).\newline
+iv.   Category and BIL are moderately positive  correlated variables (0.3985).\newline
+                            
+Also by the heat map, there is a positive correlation between Category, AST, and GGT.\newline 
+      
+                  
+      
+\subsection{Bivariate association of the category with the Sex predictor}      
+            
+```{r}
+#Bivariate association of the category with the Sex predictor.
+test <- chisq.test(table(data$Category, data$Sex))
+test
+```
+      
+                  
+There is no association between Category and sex of the subject, since the p_value of the test is greater than 0.05. Hence the sex of the subject does not determine whether or not the individual is a healthy blood donor or Hepatitis C.       
+       
+      
+\subsection{Sex V.S. Category}
+```{r}
+vis_1<-table(data$Sex,data$Category)
+d_vis_1<-as.data.frame(vis_1)
+print(d_vis_1)
+library(ggplot2)
+p<-ggplot(d_vis_1, aes(x=Var1,y=Freq,fill=Var2)) +
+ geom_bar(position="dodge",stat='identity')
+print(p)
+```
+       
+                        
+Given the plot above, it is observed for category level that majority of male subjects falls in either Blood Donor or Hepatitis C.        
+              
+                  
+\subsection{Distribution of predictor variables that positively correlate to the response}
+```{r, message=FALSE, warning=FALSE}
+par(mfrow=c(1,3))
+hist(data$GGT, col="yellow", xlab = "GGT", main = "Histogram of GGT")
+hist(data$AST, col="cadetblue", xlab = "AST", main = "Histogram of AST")
+hist(data$BIL, col="pink", xlab = "BIL", main = "Histogram of BIL")
+```
+        
+                    
+Given the  plot of distribution for the three moderate positively correlated variables to the target variable, they were all found to be positively skewed. This means on the average the three variables are likely to yield healthy blood donors compared to Hepatitis C.
+       
+            
+```{r}
+R1<-data[data$Category==0,] #for healthy donors
+R2<-data[data$Category==1,] #for Hepatitis C donors
+```
+      
+           
+\section{Outlier Detection}
+```{r,message=FALSE, warning=FALSE}
+library(isofor)
+set.seed(125)
+fit.isoforest <- iForest(R1[,-c(1,3)], nt=100, phi=256)
+pred <- predict(fit.isoforest, newdata=R2[,-c(1,3)])
+```
+
+     
+```{r, message=FALSE, warning=FALSE}
+library(isofor)
+score <- scale(pred, center = min(pred), scale = max(pred)-min(pred))
+par(mfrow=c(1,1), mar=rep(4,4))
+plot(x=1:length(score), score, type="p", pch=1, 
+	main="Anomaly Score via iForest",
+    	xlab="id", ylab="score", cex=score*3, col="coral2")
+add.seg <- function(x) segments(x0=x[1], y0=0, x1=x[1], y1=x[2], 
+	lty=1, lwd=1.5, col="navyblue")
+apply(data.frame(id=1:length(score), score=score), 1, FUN=add.seg)
+eps <- 0.99
+id.outliers <- which(score > quantile(score, eps))
+text(id.outliers, score[id.outliers]+0.03, label=id.outliers, 
+	col="navyblue", cex=0.7) 
+```
+       
+                  
+With probability of 0.99, it is observe from the plot that the defective part 59 is included in the top list of potential or expected outlier. Hence the method can detect Hepatitis C patients as outlier based on what is learned from healthy blood donors.     
+            
+             
+\section{Data Partitioning}
+```{r}
+set.seed(125)
+V <- 10
+n <- NROW(data); n0 <- sum(data$Category==0); n1 <- n-n0;
+id.fold <- 1:n
+id.fold[data$Category==0] <- sample(x=1:V, size=n0, replace=TRUE)
+id.fold[data$Category==1] <- sample(x=1:V, size=n1, replace=TRUE)
+for (v in 1:V) {
+train.v <- data[id.fold!=v, ]; test.v <- data[id.fold==v, ];
+}
+dim(test.v)
+dim(train.v)
+```
+             
+                     
+The test data has $62$ observations and the train data has $553$ observations all with 13 variables from the V-folds.
+            
+            
+\section{Predictive Modeling}
+\subsection{Logistic Regression (LASSO) Via V-folds}
+```{r, results=FALSE, warning=FALSE}
+# Using LASSO
+library(glmnet)
+library(verification)
+set.seed(125)
+V <- 10
+n <- NROW(data); n0 <- sum(data$Category==0); n1 <- n-n0;
+
+missclass.rate = c()
+error=c()
+
+for (v in 1:V) {
+  error=c(error, v)
+  missclass.rate=c(missclass.rate, v)
+}
+
+id.fold <- 1:n
+id.fold[data$Category==0] <- sample(x=1:V, size=n0, replace=TRUE)
+id.fold[data$Category==1] <- sample(x=1:V, size=n1, replace=TRUE)
+for (v in 1:V) {
+train.v <- data[id.fold!=v, ]; test.v <- data[id.fold==v, ];
+
+formula0 = Category~.
+X = model.matrix (as.formula(formula0), data = train.v)
+y = factor(train.v$Category)
+fit.lasso = glmnet(x=X, y=y, family="binomial", alpha=1, 
+                    lambda.min = 1e-4, nlambda = 100, standardize=T, thresh = 
+                      1e-07, maxit=1000)
+
+
+CV = cv.glmnet(x=X, y=y, family="binomial", alpha = 1,
+               lambda.min = 1e-4, nlambda = 200, standardize = T,
+               thresh = 1e-07, maxit=1000)
+#plot(CV)
+
+# SELECTING THE BEST TUNING PARAMETER
+best.lambda = CV$lambda.1se; #best.lambda  
+fit.best = glmnet(x=X, y=y, family="binomial", alpha = 1,
+                  lambda=best.lambda, standardize = T, 
+                  thresh = 1e-07, maxit=1000)
+
+formula0 = Category ~.
+fit.final = glm(formula0, family = "binomial", data = train.v)
+
+
+yobs = test.v$Category
+X.test = test.v[, -1]
+pred.glm = predict(fit.final, newdata = X.test, type="response")
+
+area = roc.area(yobs, pred.glm)$A
+error[v] = area
+print(paste("AUC for fold", v, ":", error[v]))
+
+pred.rate = ifelse(pred.glm > 0.5, 1, 0)
+miss.rate <- mean(yobs != pred.rate)
+missclass.rate[v] = miss.rate
+print(paste("Missclassification rate for fold", v,
+           ":",missclass.rate[v]))
+
+}
+print(paste("Average of AUC:", mean(error)))
+print(paste("Average of Miss:", mean(missclass.rate)))
+print(fit.best$beta)
+lasso.miss<-mean(missclass.rate)
+lasso.AUC<-mean(error)
+
+```
+        
+                       
+The average probability that the model ranks a random blood donors more highly than a random Hepatitis C is 0.96918 based on the resulting AUC of the LASSO with a missclassification probability of 0.04097. 
+                   
+     
+           
+**Fitting the final best Logistic regression model with significant predictors from the best model of the V-fold**
+      
+```{r, message=FALSE, warning=FALSE}
+set.seed(125)
+fit.pen.lasso <- glm(factor(Category) ~ ALP + AST + BIL + CHOL +CREA + GGT + PROT, family = binomial, data=train.v)
+```
+      
+      
+The tuning parameter was selected by using the largest value of lambda such that error is within 1 standard error of the minimum. From the output above using the v-folds samples  we observe that 7 variables are selected with this choice of $\lambda$ (selected via cross validation). 
+      
+     
+Output fitting results:
+```{r,message=FALSE, warning=FALSE}
+summary(fit.pen.lasso)
+```
+       
+     
+From the output, we observe that ALP,AST,BIL,CHOL,CREA,GGT and PROT are all significant. This implies that all these features affect the simulation Categories.          
+          
+The 95% confidence intervals for coeffcients $\beta_j$ 's:
+   
+```{r,warning=FALSE, message=FALSE}
+confint(fit.pen.lasso, level=0.95)
+```
+
+The associated odds ratio:
+         
+```{r}
+exp(coef(fit.pen.lasso))
+```
+      
+The 95% confidence intervals for the odds ratio:
+          
+```{r,warning=FALSE, message=FALSE}
+exp(confint(fit.pen.lasso, level=0.95))
+```
+     
+From the above, we only make inferences on the variables with CI ,excludes 1. All the variables which excludes 1 in the CI are significant. 
+       
+                       
+ROC Curve:
+```{r, warning= FALSE, message= FALSE}
+set.seed(125)
+library(cvAUC)
+library(verification)
+n <- NROW(test.v)
+yobs <- test.v$Category
+yhat.lasso <- predict(fit.pen.lasso, newdata=test.v, type="response")
+AUC.lasso  <- ci.cvAUC(predictions=yhat.lasso, labels=yobs, folds=1:n, confidence=0.95); 
+AUC.lasso1 <- AUC.lasso$cvAUC
+area.glm <- verify(obs=yobs, pred=yhat.lasso)
+roc.plot(area.glm, plot.thres = NULL, main="ROC Curve from LASSO")
+text(x=0.5, y=0.2, paste("Area under ROC =", round(AUC.lasso$cvAUC, digits=6),
+	sep=" "), col="blue", cex=0.9)
+```
+      
+AUC provides an aggregate measure of performance across all possible classification thresholds. Hence at a threshold of 0.95, the probability that the model ranks a random blood donors more highly than a random Hepatitis C is 0.958071.
+       
+       
+```{r}
+# Misclassification rate
+missRate.lasso <- mean(yobs != (yhat.lasso > 0.5))
+missRate.lasso
+```
+         
+LASSO classifier has a missclassification rate of 0.080645 with a threshold of 0.5.    
+ 
+ 
+Advantages of LASSO classifier:\newline
+1.    Dependent variable "Category" does not need to be normally distributed.\newline         
+2.    No homogeneity of variance assumption required.\newline
+3.    Effective interpretation of results with the aid of the graph and output.\newline                          
+      
+                             
+Disadvantages of LASSO classifier:\newline           
+1.    Requires more data to achieve stability.\newline        
+2.    Effective mostly on linearly separable.\newline
+      
+                           
+\subsection{Random Forest on V-Folds}
+```{r, message=FALSE, warning=FALSE}
+library(randomForest)
+set.seed(125)
+V <- 10
+n <- NROW(data); n0 <- sum(data$Category==0); n1 <- n-n0;
+
+missclass.rate = c()
+error=c()
+
+for (v in 1:V) {
+  error=c(error, v)
+  missclass.rate=c(missclass.rate, v)
+}
+
+id.fold <- 1:n
+id.fold[data$Category==0] <- sample(x=1:V, size=n0, replace=TRUE)
+id.fold[data$Category==1] <- sample(x=1:V, size=n1, replace=TRUE)
+for (v in 1:V) {
+train.v <- data[id.fold!=v, ]; test.v <- data[id.fold==v, ];
+
+
+mtry = tuneRF(train.v[ , -1], factor(train.v$Category), ntreeTry=200,
+              stepFactor=2, improve=0.05, trace=TRUE, 
+              plot=FALSE, dobest=FALSE, printFlag = FALSE)
+
+best.mtry = mtry[mtry[, 2] == min(mtry[, 2]), 1]
+
+## Fitting model
+fit.rf = randomForest(factor(Category) ~., mtry=best.mtry,
+                      data=train.v, importance=TRUE, proximity=TRUE,
+                      ntree=500)
+
+yobs = test.v$Category
+pred.rf = predict(fit.rf, newdata=test.v[, -c(1)], type="prob")[, 2]
+area = roc.area(yobs, pred.rf)$A
+error[v] = area
+print(paste("AUC for fold", v, ":", error[v]))
+
+pred.rate = ifelse(pred.rf > 0.5, 1, 0)
+miss.rate <- mean(yobs != pred.rate)
+missclass.rate[v] = miss.rate
+print(paste("Missclassification rate for fold", v,
+           ":",missclass.rate[v]))
+
+}
+print(paste("Average of AUC:", mean(error)))
+print(paste("Average of Miss:", mean(missclass.rate)))
+
+rf.miss<-mean(missclass.rate)
+rf.AUC<-mean(error)
+```
+        
+                    
+The average probability that the model ranks a random blood donors more highly than a random Hepatitis C is 0.9808 based on the resulting AUC of the Random Forest with an average missclassification probability of 0.03371.       
+      
+       
+**fitting one random forest model with training data through V-folds.**
+```{r, message=F, warning=F}
+set.seed(125)
+fit.rf
+pred.rf = predict(fit.rf, newdata=test.v[, -1], type="prob")[, 2]
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+# VARIABLE IMPORTANCE RANKING
+round(importance(fit.rf), 2)
+varImpPlot(fit.rf, main="Variable Importance Ranking")
+```
+        
+                    
+Based on the MeanDecreaseAccuracy, the top three variables according to the variable importance ranking for random forest are AST, ALT and ALP. The least significant variable is sex as indicated earlier on from the LASSO best variables.
+             
+                     
+**AUC Curve for Random forest**     
+                     
+```{r,message=FALSE, warning=FALSE}
+AUC.RF <- roc.area(obs=yobs, pred=pred.rf)$A
+area.rf <- verify(obs=yobs, pred=pred.rf)
+roc.plot(area.rf, plot.thres = NULL, col="red", main="ROC Curve from Random Forest")
+text(x=0.7, y=0.2, paste("Area under ROC =", round(AUC.RF, digits=6), 
+	sep=" "), col="blue", cex=0.9)
+```
+            
+                            
+The probability that the model ranks a random blood donors more highly than a random Hepatitis C is 0.979036 according to the AUC of the random forest classifier above.                
+             
+                               
+**Advantages of Random Forest classifier:**\newline           
+1.    High performance and accurate with reagrds to the modelling\newline
+2.    Provides feature importance estimate\newline
+3.    Can automatically handle missing values\newline
+4.    No feature scaling is required\newline
+          
+                  
+**Disadvantages of Random Forest classifier:**\newline    
+1.    Less interpret-ability, black box approach\newline
+2.    Can over fit the data.\newline
+3.    Requires more computational resources\newline
+4.    Prediction time is high\newline    
+                   
+                 
+\subsection{Multivariate Adaptive Regression Splines through V-folds}            
+                  
+```{r,warning=FALSE,message=FALSE}
+set.seed(125)
+library("earth")
+library(ggplot2)   # plotting
+library(caret)     # automating the tuning process
+library(vip)       # variable importance
+library(pdp)       # variable relationships
+
+set.seed(125)
+V <- 10
+n <- NROW(data); n0 <- sum(data$Category==0); n1 <- n-n0;
+
+missclass.rate = c()
+error=c()
+
+for (v in 1:V) {
+  error=c(error, v)
+  missclass.rate=c(missclass.rate, v)
+}
+
+id.fold <- 1:n
+id.fold[data$Category==0] <- sample(x=1:V, size=n0, replace=TRUE)
+id.fold[data$Category==1] <- sample(x=1:V, size=n1, replace=TRUE)
+for (v in 1:V) {
+train.v <- data[id.fold!=v, ]; test.v <- data[id.fold==v, ];
+
+
+fit.mars <- earth(Category ~ .,  data = train.v, degree=3,
+	glm=list(family=binomial(link = "logit")))
+
+yobs = test.v$Category
+yhat.mars <- predict(fit.mars, newdata=test.v[, -1], type="response")
+area = roc.area(yobs, yhat.mars)$A
+error[v] = area
+print(paste("AUC for fold", v, ":", error[v]))
+
+pred.rate = ifelse(pred.rf > 0.5, 1, 0)
+miss.rate <- mean(yobs != pred.rate)
+missclass.rate[v] = miss.rate
+print(paste("Missclassification rate for fold", v,
+           ":",missclass.rate[v]))
+
+}
+print(paste("Average of AUC:", mean(error)))
+print(paste("Average of Miss:", mean(missclass.rate)))
+
+MARS.miss<-mean(missclass.rate)
+MARS.AUC<-mean(error)
+```
+            
+                              
+The average probability that the model ranks a random blood donors more highly than a random Hepatitis C is 0.91409 based on the resulting AUC of the Multivariate Adaptive Regression Splines with a average missclassification probability of 0.1255.      
+              
+                     
+```{r , message=F, warning= FALSE, message=FALSE}
+# VARIABLE IMPORTANCE PLOT
+vip(fit.mars, num_features = 10, bar = FALSE) + ggtitle("GCV")
+```
+           
+          
+Given the graph, the three top important variables is AST, ALT and ALP. This implies AST, ALT and ALP are the three top variables that predict a category of which a subject falls into.
+                 
+       
+```{r, warning= FALSE, message=FALSE}
+# PREDICTION
+AUC.MARS <- ci.cvAUC(predictions=yhat.mars, labels=yobs, 
+                     folds=1:length(yhat.mars), confidence=0.95); AUC.MARS 
+AUC.Mar<-AUC.MARS$cvAUC
+auc.ci <- round(AUC.MARS$ci, digits=6)
+library(verification)
+area.mars <- verify(obs=yobs, pred=yhat.mars)
+roc.plot(area.mars, plot.thres = NULL, main="ROC Curve from MARS")
+text(x=0.6, y=0.2, paste("Area under ROC =", 
+                         round(AUC.MARS$cvAUC, digits=4),
+	sep=" "), col="cadetblue", cex=0.9)
+```
+                   
+         
+The probability that the model ranks a random blood donors more highly than a random Hepatitis C is 0.9686 based on the resulting AUC of the Multivariate Adaptive Regression Splines (MARS).     
+      
+          
+```{r, message=F, warning=F, message=FALSE}
+# Missclassification rate
+missRate.Mars <- mean(yobs != (yhat.mars>0.5))
+missRate.Mars
+```
+          
+               
+Multivariate Adaptive Regression Splines classifier has a missclassification rate of 0.0645 with a threshold of 0.5.
+             
+                       
+    
+**Advantages of Multivariate Adaptive Regression Splines classifier:**\newline 
+1.    Robust to outliers\newline
+2.    Works well with a large number of predictor variables\newline
+3.    Automatically detects interactions between variables\newline
+4.    It is an efficient and fast algorithm, despite its complexity\newline
+
+
+**Disadvantages of Multivariate Adaptive Regression Splines classifier:**\newline
+1.    The resulting fitted function is not smooth( not differentiable along hinges)\newline
+2.    Susceptible to overfitting\newline
+3.    More difficult to understand and interpret than other methods\newline
+4.    Not good with missing data\newline
+        
+                   
+\subsection{Support Vector Machines (SVM)}                 
+\subsubsection{Linear SVM}
+```{r, message=FALSE, warning=FALSE}
+# Using Linear Kernel
+set.seed(125)
+library(caret)
+
+data11 = as.data.frame(model.matrix(Category~. -1, data = data))
+newdata = data.frame(Category = data$Category, data11)
+
+set.seed(125)
+V <- 10
+index.cv <- sample(1:V, size=NROW(newdata), replace=TRUE)
+
+missclass.rate = c()
+error=c()
+for (v in 1:V) {error=c(error, v)
+missclass.rate=c(missclass.rate, v)
+}
+
+
+for (v in 1:V){
+	print(v)
+	train_d.v <- newdata[index.cv!=v, ]
+	valid_d.v <- newdata[index.cv==v, ]
+	yobs <- valid_d.v[, 1]
+    X.train <- train_d.v[, -1]; X.test <- valid_d.v[, -1]
+    scale.train <- scale(X.train, center=TRUE, scale = TRUE)
+    train_scaled.v <- data.frame(Category=train_d.v[, 1] , scale.train)
+    valid_d.v[, 2:14] <- as.data.frame(scale(X.test, 
+                         center=attributes(scale.train)$`scaled:center`,
+                         scale=attributes(scale.train)$`scaled:scale`))
+
+trctrl <- trainControl(method = "repeatedcv", number=10, repeats = 3)   
+svm_Linear <- train(factor(Category) ~., 
+                    data =train_scaled.v , method = "svmLinear",trControl=trctrl,
+                 tuneLength = 10)  
+
+test_pred.svm1 <- predict(svm_Linear, newdata = valid_d.v[,-1])
+test_pred.svm1 <- as.numeric(as.character(test_pred.svm1))
+
+area = roc.area(yobs, test_pred.svm1)$A
+error[v] = area
+	print(paste("AUC for fold", v, ":", error[v]))
+	
+	pred.rate = ifelse(test_pred.svm1 > 0.5, 1, 0) 
+  miss.rate <- mean(yobs != pred.rate)
+  missclass.rate[v] = miss.rate
+  print(paste("Missclassification rate for fold", v, ":",
+              missclass.rate[v]))
+}
+averageAUC = print(c("Average AUC:", mean(error)))
+print(c("Average Misclassification rate:", mean(missclass.rate)))
+
+SVM1.miss<-mean(missclass.rate)
+SVM1.AUC<-mean(error)
+```
+         
+                         
+The average probability that the model ranks a random blood donors more highly than a random Hepatitis C is 0.8370 based on the resulting AUC of the Linear SVM with an average missclassification probability of 0.0506.     
+         
+            
+
+\subsubsection{C value in Linear Classifier SVM}
+
+```{r, warning=FALSE, message=FALSE}
+# Using  C value in Linear Kernel Classifier
+library(caret)
+set.seed(125)
+data11 = as.data.frame(model.matrix(Category~. -1, data = data))
+newdata = data.frame(Category = data$Category, data11)
+
+V <- 10
+index.cv <- sample(1:V, size=NROW(newdata), replace=TRUE)
+
+missclass.rate = c()
+error=c()
+for (v in 1:V) {error=c(error, v)
+missclass.rate=c(missclass.rate, v)
+}
+
+
+for (v in 1:V){
+	print(v)
+	train_d.v <- newdata[index.cv!=v, ]
+	valid_d.v <- newdata[index.cv==v, ]
+	yobs <- valid_d.v[, 1]
+    X.train <- train_d.v[, -1]; X.test <- valid_d.v[, -1]
+    scale.train <- scale(X.train, center=TRUE, scale = TRUE)
+    train_scaled.v <- data.frame(Category=train_d.v[, 1] , scale.train)
+    valid_d.v[, 2:14] <- as.data.frame(scale(X.test, 
+                         center=attributes(scale.train)$`scaled:center`,
+                         scale=attributes(scale.train)$`scaled:scale`))
+
+grid <- expand.grid(C = c(0,0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2,5))
+svm_Linear_Grid <- train(factor(Category) ~., data = train_scaled.v, 
+                         method = "svmLinear",
+                    trControl=trctrl,
+                    tuneGrid = grid,
+                    tuneLength = 10)  
+
+test_pred.svm2 <- predict(svm_Linear_Grid, newdata =valid_d.v[,-1],type="raw")
+test_pred.svm2 <- as.numeric(as.character(test_pred.svm2))
+
+area = roc.area(yobs, test_pred.svm2)$A
+error[v] = area
+	print(paste("AUC for fold", v, ":", error[v]))
+	
+	pred.rate = ifelse(test_pred.svm2 > 0.5, 1, 0) 
+  miss.rate <- mean(yobs != pred.rate)
+  missclass.rate[v] = miss.rate
+  print(paste("Missclassification rate for fold", v, ":",
+              missclass.rate[v]))
+}
+averageAUC = print(c("Average AUC:", mean(error)))
+print(c("Average Misclassification rate:", mean(missclass.rate)))
+
+SVM2.miss<-mean(missclass.rate)
+SVM2.AUC<-mean(error)
+```
+             
+          
+The average probability that the model ranks a random blood donors more highly than a random Hepatitis C is 0.84058 based on the resulting AUC of the C value in Linear Classifier SVM with a average missclassification probability of 0.05213.
+                 
+              
+\subsubsection{Non-Linear Kernel SVM}
+```{r, message=FALSE, warning=FALSE}
+# Using Radial kernel
+set.seed(125)
+library(caret)
+
+data11 = as.data.frame(model.matrix(Category~. -1, data = data))
+newdata = data.frame(Category = data$Category, data11)
+
+V <- 10
+index.cv <- sample(1:V, size=NROW(newdata), replace=TRUE)
+
+missclass.rate = c()
+error=c()
+for (v in 1:V) {error=c(error, v)
+missclass.rate=c(missclass.rate, v)
+}
+
+
+for (v in 1:V){
+	print(v)
+	train_d.v <- newdata[index.cv!=v, ]
+	valid_d.v <- newdata[index.cv==v, ]
+	yobs <- valid_d.v[, 1]
+    X.train <- train_d.v[, -1]; X.test <- valid_d.v[, -1]
+    scale.train <- scale(X.train, center=TRUE, scale = TRUE)
+    train_scaled.v <- data.frame(Category=train_d.v[, 1] , scale.train)
+    valid_d.v[, 2:14] <- as.data.frame(scale(X.test, 
+                         center=attributes(scale.train)$`scaled:center`,
+                         scale=attributes(scale.train)$`scaled:scale`))
+
+trctrl <- trainControl(method = "repeatedcv", number=10, repeats = 3)
+
+svm_Radial <- train(factor(Category) ~., data = train_scaled.v, 
+                    method = "svmRadial",
+                 trControl=trctrl,
+                 tuneLength = 10)
+
+# PREDICTION
+test_pred.svm3 <- predict(svm_Radial, newdata = valid_d.v[,-1],type="raw")
+test_pred.svm3 <- as.numeric(as.character(test_pred.svm3))
+
+
+area = roc.area(yobs, test_pred.svm3)$A
+error[v] = area
+	print(paste("AUC for fold", v, ":", error[v]))
+	
+	pred.rate = ifelse(test_pred.svm3 > 0.5, 1, 0) 
+  miss.rate <- mean(yobs != pred.rate)
+  missclass.rate[v] = miss.rate
+  print(paste("Missclassification rate for fold", v, ":",
+              missclass.rate[v]))
+}
+averageAUC = print(c("Average AUC:", mean(error)))
+print(c("Average Misclassification rate:", mean(missclass.rate)))
+
+SVM3.miss<-mean(missclass.rate)
+SVM3.AUC<-mean(error)
+```
+         
+                    
+The average probability that the model ranks a random blood donors more highly than a random Hepatitis C is 0.89025 based on the resulting AUC of the Non-Linear Kernel SVM with a average missclassification probability of 0.04520.       
+                
+               
+**Advantages Support Vector Machines (SVM) classifier:**\newline
+1.    SVM works relatively well when there is a clear margin of separation between classes.\newline
+2.    SVM is more effective in high dimensional spaces.\newline
+3.    SVM is effective in cases where the number of dimensions is greater than the number of samples.\newline
+4.    SVM is relatively memory efficient\newline
+                  
+                           
+**Disadvantages of Support Vector Machines (SVM) classifiers**\newline
+1.    SVM algorithm is not suitable for large data sets.\newline
+2.    SVM does not perform very well when the data set has more noise i.e. target classes are overlapping.\newline
+3.    In cases where the number of features for each data point exceeds the number of training data samples, the SVM will underperform.\newline
+4.    As the support vector classifier works by putting data points, above and below the classifying hyperplane there is no probabilistic explanation for the classification.\newline
+        
+               
+
+\subsection{Artificial Neural Networks (ANN)}
+\subsubsection{Data Preparing- Dealing with  categorical variable and scaling}
+```{r, message=F, warning=F, message=FALSE}
+# DATA PREPARATION - NEED TO DEAL WITH CATEGORICAL PREDICTORS
+X.dat <- as.data.frame(model.matrix(Category~.-1, data=data))
+dat1 <- data.frame(cbind( Category=data$Category,X.dat))
+```
+
+\subsubsection{Model 1: 1 hidden layer, 3 units}
+```{r,warning=FALSE, message=FALSE}
+#Partitioning of Data
+set.seed(125)
+library(neuralnet);
+
+V <- 10
+index.cv <- sample(1:V, size=NROW(dat1), replace=TRUE)
+
+missclass.rate = c()
+error=c()
+
+for (v in 1:V) {
+  error=c(error, v)
+  missclass.rate=c(missclass.rate, v)
+}
+
+for (v in 1:V){
+	print(v)
+	train_d.v <- dat1[index.cv!=v, ]
+	valid_d.v <- dat1[index.cv==v, ]
+	
+    X.train <- train_d.v[, -1]; X.test <- valid_d.v[, -1]
+    scale.train <- scale(X.train, center=TRUE, scale = TRUE)
+    train_scaled.v <- data.frame(Category=train_d.v[, 1] , scale.train)
+    valid_d.v[, 2:14] <- as.data.frame(scale(X.test, 
+                         center=attributes(scale.train)$`scaled:center`,
+                         scale=attributes(scale.train)$`scaled:scale`))
+
+	yobs <- valid_d.v[, 1]
+
+# Using  1 hidden layer, 3 units
+options(digits=3)
+net1 = neuralnet(Category~., data=train_scaled.v, hidden=3, rep = 1,
+		threshold = 0.05, stepmax = 1e+05, algorithm = "rprop+", 
+		err.fct = "ce", act.fct = "logistic", 
+		linear.output=FALSE, likelihood=TRUE)
+
+# PLOT THE MODEL
+#plot(net1, rep="best", show.weights=T, dimension=6.5, information=F, radius=.15,
+#     col.hidden="red", col.hidden.synapse="black", lwd=1, fontsize=9)
+
+	pred.11 = as.vector(neuralnet::compute(net1, 
+                                   covariate=valid_d.v[,-1])$net.result)
+	area = roc.area(yobs, pred.11)$A
+  error[v] = area
+  print(paste("AUC for fold", v, ":", error[v]))
+  
+  pred.rate = ifelse(pred.11 > 0.5, 1, 0)
+  miss.rate <- mean(yobs != pred.rate)
+  missclass.rate[v] = miss.rate
+  print(paste("Missclassification rate for fold", v,
+           ":",missclass.rate[v]))
+	
+}
+
+print(paste("Average of AUC:", mean(error)))
+print(paste("Average of Miss:", mean(missclass.rate)))
+ANN1.miss<-mean(missclass.rate)
+ANN1.AUC<-mean(error)
+```
+        
+                              
+The average probability that the model ranks a random blood donors more highly than a random Hepatitis C is 0.9662 based on the resulting AUC of the 1 hidden layer, 3 units of Artificial Neural Network with a average missclassification probability of 0.0550. 
+       
+                
+
+\subsubsection{Model 2: 2 hidden layer, 3 units}
+
+```{r, message=F, warning=F}
+
+set.seed(125)
+library(neuralnet);
+
+V <- 10
+index.cv <- sample(1:V, size=NROW(dat1), replace=TRUE)
+
+missclass.rate = c()
+error=c()
+
+for (v in 1:V) {
+  error=c(error, v)
+  missclass.rate=c(missclass.rate, v)
+}
+
+for (v in 1:V){
+	print(v)
+	train_d.v <- dat1[index.cv!=v, ]
+	valid_d.v <- dat1[index.cv==v, ]
+	
+    X.train <- train_d.v[, -1]; X.test <- valid_d.v[, -1]
+    scale.train <- scale(X.train, center=TRUE, scale = TRUE)
+    train_scaled.v <- data.frame(Category=train_d.v[, 1] , scale.train)
+    valid_d.v[, 2:14] <- as.data.frame(scale(X.test, 
+                         center=attributes(scale.train)$`scaled:center`,
+                         scale=attributes(scale.train)$`scaled:scale`))
+
+	yobs <- valid_d.v[, 1]
+
+# Using  2 hidden layer, 3 units
+options(digits=3)
+net2 = neuralnet(Category~., data=train_scaled.v, hidden=c(2,3), rep = 1,
+		threshold = 0.05, stepmax = 1e+05, algorithm = "rprop+", 
+		err.fct = "ce", act.fct = "logistic", 
+		linear.output=FALSE, likelihood=TRUE)
+
+
+# PLOT THE MODEL
+#plot(net2, rep="best", show.weights=T, dimension=6.5, information=F, radius=.15,
+ #    col.hidden="red", col.hidden.synapse="black", lwd=1, fontsize=9)
+
+	pred.11 = as.vector(neuralnet::compute(net2, 
+                                   covariate=valid_d.v[,-1])$net.result)
+	area = roc.area(yobs, pred.11)$A
+  error[v] = area
+  print(paste("AUC for fold", v, ":", error[v]))
+  
+  pred.rate = ifelse(pred.11 > 0.5, 1, 0)
+  miss.rate <- mean(yobs != pred.rate)
+  missclass.rate[v] = miss.rate
+  print(paste("Missclassification rate for fold", v,
+           ":",missclass.rate[v]))
+	
+}
+
+print(paste("Average of AUC:", mean(error)))
+print(paste("Average of Miss:", mean(missclass.rate)))
+
+ANN2.miss<-mean(missclass.rate)
+ANN2.AUC<-mean(error)
+```
+         
+                            
+The average probability that the model ranks a random blood donors more highly than a random Hepatitis C is 0.9216 based on the resulting AUC of the 2 hidden layer, 3 units of Artificial Neural Network with a average missclassification probability of 0.0534.
+       
+       
+
+\subsubsection{Model 2: 5 hidden layer, 4 units}
+```{r, message=F, warning=F}
+# Using  5 hidden layer, 4 units
+library(neuralnet);
+set.seed(125)
+
+V <- 10
+index.cv <- sample(1:V, size=NROW(dat1), replace=TRUE)
+
+missclass.rate = c()
+error=c()
+
+for (v in 1:V) {
+  error=c(error, v)
+  missclass.rate=c(missclass.rate, v)
+}
+
+for (v in 1:V){
+	print(v)
+	train_d.v <- dat1[index.cv!=v, ]
+	valid_d.v <- dat1[index.cv==v, ]
+	
+    X.train <- train_d.v[, -1]; X.test <- valid_d.v[, -1]
+    scale.train <- scale(X.train, center=TRUE, scale = TRUE)
+    train_scaled.v <- data.frame(Category=train_d.v[, 1] , scale.train)
+    valid_d.v[, 2:14] <- as.data.frame(scale(X.test, 
+                         center=attributes(scale.train)$`scaled:center`,
+                         scale=attributes(scale.train)$`scaled:scale`))
+
+	yobs <- valid_d.v[, 1]
+
+# Using  2 hidden layer, 3 units
+options(digits=3)
+net3 = neuralnet(Category~., data=train_scaled.v, hidden=c(5,4), rep = 1,#5 hidden layer, 4 units
+		threshold = 0.05, stepmax = 1e+05, algorithm = "rprop+", 
+		err.fct = "ce", act.fct = "logistic", 
+		linear.output=FALSE, likelihood=TRUE)
+
+
+# PLOT THE MODEL
+#plot(net3, rep="best", show.weights=T, dimension=6.5, information=F, radius=.15,
+ #    col.hidden="red", col.hidden.synapse="black", lwd=1, fontsize=9)
+
+	pred.11 = as.vector(neuralnet::compute(net3, 
+                                   covariate=valid_d.v[,-1])$net.result)
+	area = roc.area(yobs, pred.11)$A
+  error[v] = area
+  print(paste("AUC for fold", v, ":", error[v]))
+  
+  pred.rate = ifelse(pred.11 > 0.5, 1, 0)
+  miss.rate <- mean(yobs != pred.rate)
+  missclass.rate[v] = miss.rate
+  print(paste("Missclassification rate for fold", v,
+           ":",missclass.rate[v]))
+	
+}
+
+print(paste("Average of AUC:", mean(error)))
+print(paste("Average of Miss:", mean(missclass.rate)))
+
+ANN3.miss<-mean(missclass.rate)
+ANN3.AUC<-mean(error)
+```
+           
+                           
+The average probability that the model ranks a random blood donors more highly than a random Hepatitis C is 0.95345 based on the resulting AUC of the 5 hidden layer, 4 units of Artificial Neural Network with a average missclassification probability of 0.04178.    
+              
+                     
+**Advantages of Artificial Neural Networks (ANN) classifier**\newline
+1.    ANN learning methods are quite robust to noise in the training data.\newline
+2.    It is used where the fast evaluation of the learned target function required.\newline
+3.    ANNs have the ability to learn and model non-linear and complex relationships.\newline
+4.    Unlike many other prediction techniques, ANN does not impose any restrictions on the input variables.\newline
+              
+              
+**Disadvantages of Artificial Neural Networks (ANN) classifier**\newline
+1.    Unexplained functioning of the network that is, when ANN gives a probing solution, it does not give a clue as to why and how.\newline
+2.    Assurance of proper network structure:  There is no specific rule for determining the structure of artificial neural networks. The appropriate network structure is achieved through experience and trial and error. \newline
+         
+              
+\subsection{Model Comparison}   
+```{r}
+Missclassification_Rate <-c(lasso.miss,rf.miss,MARS.miss,
+                          SVM1.miss,SVM2.miss,SVM3.miss,ANN1.miss,
+                          ANN2.miss,ANN3.miss)
+AUC <- c(lasso.AUC,rf.AUC,MARS.AUC,SVM1.AUC,SVM2.AUC,
+         SVM3.AUC,ANN1.AUC,ANN2.AUC,ANN3.AUC)
+Measures <- data.frame("Classifier Method"= c("LASSO Regularized Regression",
+                                   "RF","MARS","SVM- Linear","SVM- C value Linear","SVM- Radial","ANN-c(1,3)","ANN-c(2,3)","ANN-c(5,4)"), 
+                       "MissClassification Rate"= Missclassification_Rate, "AUC"=AUC); 
+knitr::kable(Measures, align = "lcc")
+```
+   
+                        
+Among all these classifier techniques,The Random Forest which is a tree-based models turned out to be the best and stable classifiers as it properly create split directions, thus keeping only the efficient information. Given its highest C statistics Index and minimum miss classification rate from the table.                              
+
+                                
+\newpage
+\section{Reference}
+1. https://medium.com/@gokul.elumalai05/pros-and-cons-of-common-machine-learning-algorithms-45e05423264f  
+      
+               
+2. Friedman JH (1991) Multivariate adaptive regression splines. The annals of statistics: 1-67.
+          
+                       
+3. Leathwick JR, Elith J, Hastie T (2006) Comparative performance of generalized additive models and multivariate adaptive regression splines for statistical modelling of species distributions. Ecological modelling, 199(2): 188-196.     
+             
+                         
+4. https://dhirajkumarblog.medium.com/top-4-advantages-and-disadvantages-of-support-vector-machine-or-svm-a3c06a2b107   

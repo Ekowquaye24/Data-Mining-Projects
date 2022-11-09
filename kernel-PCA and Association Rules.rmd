@@ -1,0 +1,434 @@
+---
+title: "Project III: kPCA and Association Rules"
+author:
+- Quaye, George Ekow
+#date: "Due 10/05/2020"
+output:
+  pdf_document:
+    fig_caption: yes
+    keep_tex: yes
+    latex_engine: pdflatex
+    number_sections: yes
+    toc: yes
+    toc_depth: 4
+  word_document:
+    toc: yes
+    toc_depth: '4'
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsfonts}
+- \usepackage{amsthm}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhf{}
+- \rhead{Data Mining 2}
+- \lhead{Optimization and the Kernel Trick}
+- \cfoot{\thepage}
+- \usepackage{algorithm}
+- \usepackage[noend]{algpseudocode}
+geometry: margin=1in
+spacing: single
+fontsize: 10pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\newpage
+
+\section{Bringing in the Data for Train and Test}
+
+(a) Bring in the training set optdigits.tra, which has sixty-four (p = 64) inputs plus the target variable that indicates the digit 0-9. Examine the data briefly. Remove any column that is unary (i.e., containing only one values) and check on possible missing values.
+
+```{r}
+# Read both the training data set optdigits.tra and the test data set optdigits.tes into R.
+# BRING IN THE DATA
+train <- read.table(file=
+"http://archive.ics.uci.edu/ml/machine-learning-databases/optdigits/optdigits.tra",
+sep=",", header = FALSE, na.strings = c("NA", "", " "),
+col.names = c(paste("x", 1:64, sep=""), "digit"))
+test <- read.table(file=
+"http://archive.ics.uci.edu/ml/machine-learning-databases/optdigits/optdigits.tes",
+sep=",", header = FALSE, na.strings = c("NA", "", " "),
+col.names = c(paste("x", 1:64, sep=""), "digit"))
+dim(train); dim(test)
+```
+
+```{r}
+data_miss <- rbind(train, test); dim(data_miss)
+```
+
+```{r, results=FALSE}
+# INSPECT THE DISTINCT VALUES OF EACH X
+for (j in 1:NCOL(data_miss)){
+  x <- data_miss[,j]
+  print(table(x, useNA="ifany"))
+}
+```
+
+```{r}
+# Listing the missing rate for each variable.
+miss.info <- function(dat, filename=NULL){
+  vnames <- colnames(dat); vnames
+  n <- nrow(dat)
+  out <- NULL
+  for (j in 1: ncol(dat)){
+    vname <- colnames(dat)[j]
+    x <- as.vector(dat[,j])
+    n1 <- sum(is.na(x), na.rm=T)
+    n2 <- sum(x=="NA", na.rm=T)
+    n3 <- sum(x=="", na.rm=T)
+    nmiss <- n1 + n2 + n3
+    ncomplete <- n-nmiss
+    out <- rbind(out, c(col.number=j, vname=vname, 
+                        mode=mode(x), n.levels=length(unique(x)), 
+                        ncomplete=ncomplete, miss.perc=nmiss/n))
+  }
+  out <- as.data.frame(out)
+  row.names(out) <- NULL 
+  if (!is.null(filename)) write.csv(out, file = filename, row.names=F)
+  return(out)
+}
+miss.info(data_miss)
+```
+
+From the output, there are no missing values in both the test and train data sets.
+
+
+```{r}
+# Heat Map on the Train Data
+dat1 <- data.matrix(train[order(train$digit), -65])
+n <- NROW(dat1)
+color <- rainbow(n, alpha = 0.8)
+heatmap(dat1, col=color, scale="column", Rowv=NA, Colv=NA,
+labRow=FALSE, margins=c(4,4), xlab="Image Variables", ylab="Samples",
+main="Heatmap of Handwritten Digit Data")
+```
+
+The heatmap indicates how the handwritten digit data is clustered. From the heat map, we can observe different patterns where each pattern corresponds to the digits 0-9 and also there are no observations recorded for the 1st and 40th variable.
+
+
+```{r}
+# Heat Map on the Test Data
+dat0 <- data.matrix(test[order(test$digit), -65])
+n <- NROW(dat0)
+color <- rainbow(n, alpha = 0.8)
+heatmap(dat0, col=color, scale="column", Rowv=NA, Colv=NA,
+labRow=FALSE, margins=c(4,4), xlab="Image Variables", ylab="Samples",
+main="Heatmap of Handwritten Digit Data")
+```
+
+The heatmap indicates how the handwritten digit data is clustered.We observe different patterns where each pattern corresponds to the digits 0-9 from the heatmap and also there are no observations recorded for the 1st, 33rd and 40th variable.
+
+
+(b) Excluding the target variables, run the ordinary principal components analysis (PCA) with the training set. Output the scree plot of the variances (i.e., eigenvalues) of the principal components. Make a scatter plot of the first two PCs and show the target class variable (i.e., digit number) with different symbols and colors. Recall that this also corresponds to a multidimensional scaling (MDS) analysis of data.
+
+
+```{r}
+# removing target variable 
+dat00 <- data.matrix(train[,-c(33,65)]) # Train
+dat01 <- data.matrix(test[,-c(33,65)]) # Test
+
+
+# Remove the Unary variables
+newTrain <- dat00[,apply(dat00, 2, var, na.rm=TRUE) != 0] # Train
+newTest <- dat01[,apply(dat01, 2, var, na.rm=TRUE) != 0]  # Test
+dim(newTrain);dim(newTest)
+```
+
+The test data had 3 variables with the target variable removed. The train data had 3 variable with the target variable removed instead just one with the target variable, just to make the two data sets conformable for further analysis.
+
+```{r}
+# STANDARDIZE THE Train DATA
+newTrain.scaled <- data.frame(apply(newTrain, 2, scale, center=T, scale=T))
+
+```
+
+```{r}
+# STANDARDIZE THE Test DATA
+newTest.scaled <- data.frame(apply(newTest, 2, scale, center=T, scale=T))
+
+```
+
+
+```{r}
+# ORDINARY PCA 
+pca.dat0 <- prcomp(newTrain.scaled, scale=FALSE, retx=TRUE);
+```
+
+```{r}
+# OBTAIN EIGENVALUES AND COMPARE 
+lambda <- eigen(cov(newTrain.scaled), only.values = T)$values
+lambda
+
+```
+
+
+```{r}
+# PLOT THE VARIANCES
+par(mfrow=c(1,2), mar=rep(4,4))
+plot(pca.dat0)
+screeplot(pca.dat0, type="lines", main="Scree Plot")
+
+```
+
+Given the Scree plot, we choose $\lambda =2$.
+
+```{r, echo=FALSE}
+palette("default")
+color <- palette()
+palette(c(color,"pink","orange","brown"))
+palette()
+```
+
+```{r}
+#Scatter plot of the first two PCs
+plot(pca.dat0$x[,1:2], pch="", main="Plot of PC.1 vs. PC.2 for Train Data Set")
+text(pca.dat0$x[,1:2], labels=train$digit, col=train$digit)
+abline(v=0, lty=2)
+abline(h=0, lty=2)
+```
+
+
+The plot of PC2 vs. PC1 with a scatterplot displays the structure of remoteness-like handwritten data digit as a geometrical picture. Given the plot, digits regularized closer to one another are more similar than those regularized further away. Again from the plot we observe that the two components hold some information, especially for specific digits, but clearly not enough to set all of them apart.
+
+
+
+(c) Run kernel PCA on the input variables only. Output the scree plot of the variances (i.e.,eigenvalues) of the resultant principal components. Plot the first two PCs with scatted
+points and show the target class variable with different symbols and colors. Compare the kPCA results with the PCA results.
+
+
+```{r, message=FALSE,results=FALSE}
+# KERNEL PCA
+library(kernlab)
+kpc <- kpca(~., data=newTrain.scaled, kernel="rbfdot", 
+	kpar=list(sigma=0.01), features=30);kpc
+
+```
+
+
+```{r}
+eig(kpc)        # returns the eigenvalues
+kernelf(kpc)    # returns the kernel used when kpca was performed
+PCV <- pcv(kpc) # returns the principal component vectors (BE CAREFUL!)
+dim(PCV)
+head(PCV)
+PC <- rotated(kpc)    # returns the data projected in the (kernel) pca space
+dim(PC)
+head(PC);
+
+```
+
+```{r}
+# COMPUTE NONCUMULATIVE/CUMULATIVE PROPORTIONS OF VARIATION EXPLAINED
+var.pc <- eig(kpc)
+names(var.pc) <- 1:length(var.pc)
+prop.pc <- var.pc/sum(var.pc)
+
+par(mfrow=c(1,2), mar=rep(4,4))
+# NONCUMULATIVE
+plot(prop.pc, xlab = "Principal Component", 
+	ylab = "Proportion of Variance Explained", type = "b")
+# CUMULATIVE
+plot(cumsum(prop.pc), xlab = "Principal Component", col="blue",
+              ylab = "Cumulative Proportion of Variance Explained",
+              type = "b", pch=19)
+```
+
+From the Scree plot, we choose $\lambda =2$.
+
+```{r}
+# Plot THE DATA PROJECTION ON THE KERNEL PCS 
+plot(PC[, 1:2],col=train$digit, pch="", 
+	xlab="1st Kernel PC", ylab="2nd Kernel PC")
+text(PC[,1:2], labels=train$digit, col=train$digit)
+abline(v=0, lty=2)
+abline(h=0, lty=2)
+```
+
+From the Kernel PCA plots, digits ordinated closer to one another are more similar than those ordinated further away.Again from the plot we observe that the two components hold some information, especially for specific digits,but clearly not spaced apart.
+
+
+Now we perform comparison of the ordinary PCA and Kernel PCA as required by the question
+
+```{r}
+
+par(mfrow=c(1,2), mar=rep(4,4))
+#Scatter plot of the first two PCs
+plot(pca.dat0$x[,1:2], pch="", main="Using PC")
+text(pca.dat0$x[,1:2], labels=train$digit, col=train$digit)
+abline(v=0, lty=2)
+abline(h=0, lty=2)
+
+# Plot THE DATA PROJECTION ON THE KERNEL PCS 
+plot(PC[, 1:2],col=train$digit, pch="",main="Using Kernel PC" ,
+	xlab="1st Kernel PC", ylab="2nd Kernel PC")
+text(PC[,1:2], labels=train$digit, col=train$digit)
+abline(v=0, lty=2)
+abline(h=0, lty=2)
+```
+
+
+From the two plots, we observe that the Kernel PCA is able to find good representative directional outcome.
+
+
+(d) Apply both PCA and kPCA to the test set optdigits.tes. Obtain the first two principal components and make similar plots as Part (b) & (c) and compare.
+
+
+```{r}
+# PCA
+pred_pca <- predict(pca.dat0, newTest.scaled); 
+```
+
+
+```{r}
+par(mfrow=c(1,2), mar=rep(4,4))
+#Scatter plot of the first two PCs
+plot(pca.dat0$x[,1:2], pch="", main="PC1 and PC2 (Train data)")
+text(pca.dat0$x[,1:2], labels=train$digit, col=train$digit)
+abline(v=0, lty=2)
+abline(h=0, lty=2)
+
+#Scatter plot of the first two PCs (Predicted)
+plot(pred_pca[,1:2], pch="", main="PC1 and PC2 (Test data)")
+text(pred_pca[,1:2], labels=test$digit, col=test$digit)
+abline(v=0, lty=2)
+abline(h=0, lty=2)
+
+
+```
+
+
+From the plots above we observe that the two PCA plots are kind of similar with second plot that is the test slightly dispersed. This shows that the PCA somehow sufficiently predicts the test data. 
+
+
+```{r}
+# KPCA
+pred_kpca <- predict(kpc, newTest.scaled); 
+```
+
+```{r}
+par(mfrow=c(1,2), mar=rep(4,4))
+
+#Scatter plot of the first two KERNEL PCS 
+plot(PC[, 1:2],col=train$digit, main="k-PC1 and k-PC2 (Train data)", pch="", 
+	xlab="1st Kernel PC", ylab="2nd Kernel PC")
+text(PC[,1:2], labels=train$digit, col=train$digit)
+abline(v=0, lty=2)
+abline(h=0, lty=2)
+
+#Scatter plot of the first two KERNEL PCS (Predicted) 
+plot(pred_kpca[, 1:2],col=test$digit,main="k-PC1 and k-PC2 (Test data)", pch="", 
+	xlab="1st Kernel PC", ylab="2nd Kernel PC")
+text(pred_kpca[,1:2], labels=test$digit, col=test$digit)
+abline(v=0, lty=2)
+abline(h=0, lty=2)
+```
+
+
+From the plots above we observe that the two Kernel PCA plots are also similar. This shows that the Kernel PC effectively predicts the test data. 
+
+\newpage
+
+\section{(Association Rules)}
+
+Question 2 
+(a) First read the data into R as transaction data type. This can be done using the read.transactions function in the arules package:
+
+```{r, message=FALSE, warning=FALSE}
+library(arules)
+bible <- read.transactions(file="http://snap.stanford.edu/class/cs246-data/AV1611Bible.txt",
+format = "basket", sep =" ", rm.duplicates =F)
+dat <- bible; dim(dat)
+inspect(dat[1:5, ])
+```
+
+
+(b) Set up the parameters in R function arules appropriately with your own choices and then
+perform frequent item sets and association rule analysis.
+
+
+```{r}
+# PLOT ITEMS WITH HIGH FREQUENCIES
+itemFrequencyPlot(dat, support = 0.1, cex.names = 0.8, col="blue")
+```
+
+
+From the above output, "lord" is the item with the highest frequency.
+
+```{r}
+# THE TOP 20 ITEMS 
+item.freq <- itemFrequency(dat, type = "relative")
+item.freq <- sort(item.freq, decreasing = TRUE)
+item.freq[1:20]
+```
+
+The output given above list the top 20 frequent itemsets.
+
+```{r}
+# Association analysis
+rules <- apriori(dat, parameter = list(support = 0.01, confidence = 0.6, 
+	target = "rules", maxlen=5))
+#rules
+inspect(rules[1:18])
+summary(rules) 
+
+```
+
+
+(c) List the top 5 rules in decreasing order of confidence (conf) for item sets of size 2 or 3
+which satisfy the support threshold that you have specified.
+
+```{r}
+RULES <- as(rules, "data.frame")
+rules0 <- data.frame(matrix(unlist(strsplit(as.character(RULES$rules), split="=>")), ncol=2, byrow=TRUE))
+colnames(rules0) <- c("LHS", "RHS")# LHS=Left hand side, RHS= Right had side.
+rule.size <- function(x){length(unlist(strsplit(as.character(x), split=",")))}
+rules0$size <- apply(rules0, 1, rule.size)
+rules0$size[as.character(rules0$LHS)=="{} "] <- rules0$size[as.character(RULES$LHS)=="{} "]-1   # HANDLING EMPTY ITEMSETS
+RULES <- cbind(RULES, rules0)
+head(RULES)
+
+```
+
+
+```{r}
+# Top 5 rules in decreasing order of confidence
+RULES2 <- RULES[RULES$size==2, ]
+RULES2 <- RULES[ order(RULES$confidence,decreasing = TRUE), ]
+head(RULES2,n=5)
+```
+
+The output above gives top 5 rules in decreasing order of confidence
+
+d)
+```{r}
+# Top 5 rules in decreasing order of lift
+RULES2 <- RULES[RULES$size==2, ]
+RULES2 <- RULES[ order(RULES$lift, decreasing = TRUE), ]
+head(RULES2,n=5)
+```
+
+The output above gives top 5 rules in decreasing order of lift
+
+
+(e) Explain how this measure avoids the problems associated with both the confidence and the lift measures.
+```{r}
+M <- interestMeasure(rules[1:5], c( "conviction"), transactions=dat)
+M 
+
+
+intM <- interestMeasure(rules[1:5], c("support", "chiSquare", "confidence", "conviction", "cosine", 
+	"coverage", "leverage", "lift", "oddsRatio"), transactions=dat)
+dim(intM); 
+intM
+
+```
+Conviction measures the implication strength of the rule from statistical independence. Conviction produces an association rule with better predictive ability. Unlike lift, Conviction takes into account the strength of the directed association (i.e $conv(A\rightarrow B) \neq conv(B\rightarrow A)$). Unlike Confidence, the support of both antecedent and consequent are considered in conviction.
+
+
+
+
+

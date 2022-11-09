@@ -1,0 +1,254 @@
+---
+title: "Project I: SEMMA with Regularized Logistic Regression"
+author:
+- Quaye, George Ekow
+#date: "Due 9/14/2020"
+output:
+  pdf_document:
+    fig_caption: yes
+    keep_tex: yes
+    latex_engine: pdflatex
+    number_sections: yes
+    toc: yes
+    toc_depth: 4
+  word_document:
+    toc: yes
+    toc_depth: '4'
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsfonts}
+- \usepackage{amsthm}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhf{}
+- \rhead{Data Mining}
+- \lhead{SEMMA with Regularized Logistic Regression}
+- \cfoot{\thepage}
+- \usepackage{algorithm}
+- \usepackage[noend]{algpseudocode}
+geometry: margin=1in
+spacing: single
+fontsize: 10pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+\
+\newpage
+\section {Bringing in the data}
+**1. Bring the data into R (or Python)**
+\
+```{r}
+#Reading the data
+data <- read.table(file = "diabetes_data_upload.csv",sep=",", header = T, na.strings = c("NA", "", " "), 
+                   stringsAsFactors = T)
+dim(data)
+```
+\
+The data set has 520 observations and 17 columns.       
+
+\section{Exploratory Data Analysis}
+\subsection{Variable Type}           
+```{r}
+colnames(data)
+```
+\
+```{r}
+str(data)
+```
+\
+A data with 520 observations on 17 variables, 1 being numeric variables and 16 being nominal(categorical) variables.
+\
+\subsection{Frequency distribution of the target variable}                   
+
+**inspect the frequency distribution of the target variable class and see, e.g., whether we
+have an unbalanced classification problem.**      
+\
+\
+```{r}
+#inspect the frequency distribution of the target variable class.
+library(questionr)
+freq(data$class, total=T)
+```
+\
+From the output the counts for negative are 200 and that for positive are 320. Thus in this scenario, we don’t have a very unbalanced classification problem.
+\
+\subsection{Checking for Missing values}
+**Are there missing values? If so, handle them with an appropriate strategy such as listwise deletion or single/multiple imputation.**
+```{r}
+# INSPECT THE DISTINCT VALUES OF EACH X
+cols<- 2:NCOL(data)
+for (j in cols){
+ print(colnames(data)[j])
+ print(table(table(data[,j]), useNA="ifany"))
+}
+```
+\
+```{r}
+# MISSING PERCENTAGES FOR ALL COLUMNS (OR VARIABLES)
+colMeans(is.na(data))
+```
+\
+There are no missing values in the data set.      
+
+\section{Variable Screening}
+\subsection{Chi-Square test of association}
+**Explore the marginal (bivariate) associations between class and each attribute/predictor.**
+```{r , message=FALSE}
+#Bivariate association of the response with the categorical predictors.
+m<-data[,-c(1)]
+
+library(car);
+cols.x <- 1:(NCOL(m)-1)
+xnames <- names(m)[cols.x]
+y <- m$class
+OUT <- NULL
+for (j in 1:length(cols.x)){
+x <- data[, cols.x[j]]
+xname <- xnames[j]
+tbl <- table(y, x)
+pvalue <- chisq.test(tbl)$p.value
+OUT <- rbind(OUT, cbind(xname=xname, pvalue=pvalue)) }
+```
+\
+```{r}
+OUT <- as.data.frame(OUT) 
+colnames(OUT) <- c("name", "pvalue") 
+OUT
+```
+\
+\subsection{Deletion of non significant variables}
+```{r}
+#Taking the non significant variables out
+data<-data[,-c(11,13)]
+data$class<- ifelse(data$class=="Negative", 0,1)
+colnames(data)
+```
+\
+From the output, all the predictors are significant except partial.paresis and irritability given the threshold probability of $0.25$. Thus there is significant evidence there exist an association between Class and all significant attributes.
+\
+\subsection{Correlation plot among the variables}
+```{r}
+library(GoodmanKruskal)
+data1<- data[,-c(17)]
+dat<- GKtauDataframe(data1)
+plot(dat, corColors = "magenta")
+```
+\
+There appear to be  no correlation between the predictor variables             
+
+\section{Data Partition}
+**4) Partition the data into two parts, the training data D1 and the test data D2, with a ratio of 2:1.**
+\
+```{r}
+#Partitioning data
+set.seed(125)
+sampleData <- sample(nrow(data), (2.0/3.0)*nrow(data), replace = FALSE) # training set
+D1 <- data[sampleData, ]
+# test set
+D2 <- data[-sampleData, ]
+dim(D1)
+```
+\
+Given the train data there are 346 observations with 15 variables.
+\
+```{r}
+dim(D2)
+```
+\
+Given the test data there are 174 observations with 15 variables.           
+
+\section{Logistic Regression Modeling}
+\subsection{Fitting the model}
+**5)a We now build a logistic regression model for this medical diagnosis task.**
+\
+```{r , message=FALSE}
+#Fitting a regularized logistic regression model
+library(ncvreg)
+library(glmnet)
+formula0 <- class~Age + Gender + Polyuria + Polydipsia + sudden.weight.loss + weakness + Polyphagia + Genital.thrush + visual.blurring + Itching + delayed.healing + muscle.stiffness + Alopecia + Obesity
+
+X <- model.matrix(as.formula(formula0), data=D1)
+y <- D1$class
+XTest <- model.matrix(as.formula(formula0), data=D2)
+ytest <- D2$class
+
+library(verification)
+Lambda <- seq(0.0001, 0.5, length.out = 500)
+L <- length(Lambda)
+OUT <- matrix(0, L, 4)
+for (i in 1:L){
+    fit.lasso <- glmnet(x=X, y=y, family="binomial", alpha=1, # LASSO
+	    lambda = Lambda[i], standardize=T, thresh = 1e-07, 
+      	maxit=3000)
+    pred <- predict(fit.lasso, newx=XTest, s=Lambda[i], type="response")
+    missRate <- mean(ytest != (pred > 0.5))
+    mse <- mean((ytest-pred)^2)
+    AUC <- roc.area(obs=ytest, pred=pred)$A
+    OUT[i, ] <- c(Lambda[i], missRate, mse, AUC)
+}
+head(OUT)
+
+par(mfrow = c(1,2))
+plot(OUT[,1], OUT[,2], type = "b", col="blue",ylab = "Missclassification Rate", xlab = expression(lambda))
+plot(OUT[,1], OUT[,3], type = "b", col="red",ylab = "MSE", xlab = expression(lambda))
+
+```
+\
+Given the plot of missclassifcation rate it is seen that as $\lambda$ increases, the classification rate also increases. However when $\lambda >= 0.2$, the missclassification rate remains constant. Also given the plot of MSE it is noticed that as $\lambda$ increases, the MSE also increases. However when $\lambda >= 0.3$, the MSE remains constant.                 
+\
+\subsection{Selecting best tuning parameter using validation data}
+\
+```{r}
+#Selection of tuning parameter using the validation data D2
+lambda.best <- OUT[which.min(OUT[,3]), 1]; lambda.best
+```
+\
+The criteria used to select the tuning parameter is the mean square error for the predicted probabilities.
+\          
+\subsection{Final best model fit}
+**b) Present your final `best' model fit. Which variables are important predictors? Interpret the results.**
+\
+```{r}
+Xnew <- rbind(X, XTest)
+ynew <- c(y, ytest)
+fit.best <- glmnet(x=Xnew, y=ynew, family="binomial", alpha=1, 
+	    lambda = lambda.best, standardize=T, thresh = 1e-07,maxit=3000)
+```
+\
+        
+\subsection{Checking for important predictors}
+```{r}
+#Checking for important predictors.
+fit.best$beta
+```
+\
+From the output, the coefficients with non zero values are the important predictors. 
+\
+
+\section{Model Assestment / Deployment}
+6) Apply the final logistic model to the test data $D2$. Present the ROC curve and the area under the curve, i.e., the C-index.     
+
+```{r}
+# Final model to test data
+FinalPred <- predict(fit.best, newx=XTest, s=lambda.best, type="response")
+```
+\
+```{r, message=FALSE}
+# ROC Curve and AUC
+library(cvAUC)
+AUC <- ci.cvAUC(predictions=FinalPred, labels=ytest, folds=1:NROW(D2), confidence=0.95); AUC 
+auc.ci <- round(AUC$ci, digits=3)
+
+mod.glm <- verify(obs=ytest, pred=FinalPred)
+roc.plot(mod.glm, plot.thres = NULL)
+text(x=0.7, y=0.2, paste("Area under ROC =", round(AUC$cvAUC, digits=3),
+	"with 95% CI (", auc.ci[1], ",", auc.ci[2], ").",
+	sep=" "), col="blue", cex=1.2)
+```
+\
+The Area under ROC curve is obtained as $0.986$ and the confidence interval for the area under ROC curve is also shown on the plot with 95% confidence level.
+
+

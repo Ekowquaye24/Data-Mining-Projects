@@ -1,0 +1,331 @@
+---
+output: 
+  pdf_document:
+    keep_tex: true
+    fig_caption: true
+    latex_engine: pdflatex
+    number_sections: true
+    toc: true
+title: "Project V (Parametric/Nonparametric Nonlinear Regression)"
+author: 
+- Quaye E, George
+date: "Due: 11/02/2020"
+geometry: margin=1in
+fontsize: 12pt
+spacing: double
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsfonts}
+- \usepackage{amsthm}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhf{}
+- \rhead{George Quaye}
+- \lhead{Parametric/Nonparametric Nonlinear Regression}
+- \cfoot{\thepage}
+
+
+---
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\section{Question 1- Bringing in Data}
+
+Bring in the data $D$ and make a scatterplot of bone vs. age. Does their association look linear?
+
+```{r}
+# Bring in the Data
+Data <- read.table(file="jaws.txt", header = TRUE)
+dim(Data)
+head(Data)
+```
+The data has $52$ observations with $2$ columns.        
+
+\
+Making a Scatter Plot of age vrs bone.
+```{r}
+plot(Data$age, Data$bone, main="Scatterplot of Age vs Bone", 
+  	xlab="Age in deer ", ylab="Jaw bone length ", pch=16)
+```
+\
+Given the plot above, there appears a nonlinear relationship between the age of the deer and the jaw bone length.        
+
+\newpage
+\section{Question 2- Partitioning}
+
+Randomly partition the data $D$ into the training set $D_1$ and the test set $D_2$ with a ratio of approximately $2:1$ on the sample size.       
+```{r}
+#Partitioning data
+set.seed(123)
+sampleData <- sample(nrow(Data), (2.0/3.0)*nrow(Data), replace = FALSE) # training set 
+TrainData <- Data[sampleData, ]
+#test set
+TestData <- Data[-sampleData, ]
+dim(TrainData)
+dim(TestData)
+```
+\
+The TrainData has 36 observations and the TestData has 18 both with 2 columns each.        
+
+\newpage
+\section{Question 3- Parametric Nonlinear models}
+
+**(a) Fit an asymptotic exponential model: **     
+```{r}
+attach(TrainData)
+model1 <- nls(bone ~ beta1 - beta2*exp(-beta3*age),
+start=list(beta1 = 100, beta2 = 90, beta3 = 0.3), trace=T)
+```
+        
+Given the above results, it is observed that the estimate for the parameters are $beta1 = 114.2190909$, $beta2 = 110.0767907$ and $beta3 = 0.1267136$ as the model converges
+\
+
+```{r}
+# Summary of the fitted model
+summary(model1)
+detach(TrainData)
+```
+
+From the summary output and the P-values, all the coefficients are statistically significant at the level of $\alpha = 0.05$.
+
+\
+**(b) Fit the reduced model**
+
+```{r}
+# Fitting the reduced model
+attach(TrainData)
+model2 <- nls(bone ~ beta1*(1-exp(-beta3*age)),
+  start=list(beta1 = 100, beta3 = 0.3), trace=T)
+summary(model2)
+detach(TrainData)
+```
+\
+From the above results, we observe that the estimate for the parameters are $beta1=113.78098$ and $beta3 =0.13375$ as the model converges at the 6th iteration. In the summary output, all the coefficients are statistically significant at the level of $\alpha = 0.05$ compared to the $p-values$.            
+
+\          
+**Comparing the two models using anova function**
+```{r}
+# Compare the two models
+anova(model2,model1)
+```
+\
+Given the above results, the $p-value$ of the test is $0.73$. This indicates that the reduced model (model2) is not significantly (statistically) different from original model (model1) at the level of $\alpha=0.05$. Hence a conclusion that the reduced model (model2) is better than model1 can be drawn.
+\
+**(c) Based on the better model in 2(b), add the fitted curve to the scatterplot.**     
+
+```{r}
+# Fitted Curve vs Train Data
+plot(TrainData$age, TrainData$bone, main="Scatterplot of Age vs Bone", 
+  	xlab="Age in deer ", ylab="Jaw bone length ", pch=16)
+lines(sort(TrainData$age), fitted.values(model2)[order(TrainData$age)], lwd=2,col="cadetblue")
+```
+The plot above is the line plot imposed on the scatterplot.       
+
+\     
+**(d) Apply the better model in 2(b) to the test set $D_2$ and compute the prediction mean square error (MSE).**
+
+```{r}
+# MEAN SQUARE ERROR FOR PREDICTION
+Yhat.Pred.Ex <- predict(model2, newdata = TestData); Yhat.Pred.Ex
+yobs <- TestData[, 2]
+MSEP.ex <- mean((yobs-Yhat.Pred.Ex)^2) 
+MSEP.ex
+```
+\
+Given the output, the prediction mean square error = $236.0823$
+
+\newpage
+\section{Question 4- Local Regression Methods}
+
+**(a) On basis of $D_1$; obtain a KNN regression model with your choice of K. Plot the fitted curve together with the scatterplot of the data. Apply the fitted model to $D_2$ and obtain the prediction MSE.**       
+
+```{r}
+set.seed(123)
+# Final optimal K via 10- fold CV
+library("FNN")
+SSEP <- function(yobs, yhat) sum((yobs-yhat)^2) 
+
+K <- 1:10
+V <- 4
+id.fold <- sample(1:V, size = NROW(TrainData), replace=T)
+SSE <- rep(0, length(K))
+for(k in 1:length(K)){
+  for(v in 1:V){
+    train1<- TrainData[id.fold!=v, ];
+    train2<- TrainData[id.fold==v, ];
+    yhat2 <- knn.reg(train=train1, y=train1$bone, test=train2, k=K[k], algorithm="kd_tree")$pred;
+    SSE[k] <- (SSE[k] + SSEP(train2$bone, yhat2))
+  }  
+}
+cbind(K, SSE)
+```
+   
+Using the 10-fold CV, we see that K=1, gives the optimal K. Hence we choose the tuning parameter K=1.      
+
+\
+```{r}
+# KNN regression
+library("FNN")
+fit.knn1 <- knn.reg(train=TrainData, y=TrainData$bone, k=1, algorithm="kd_tree");
+
+plot(TrainData$age, TrainData$bone, main="Scatterplot of Age vs Bone", 
+  	xlab="Age ", ylab="Bone", pch=16)
+
+lines(sort(TrainData$age), fit.knn1$pred[order(TrainData$age)],lty=1, col="navyblue")
+```
+Shown in the above figure, the fitted curve from KNN is wiggly even for the optimal K = 1. This is because of its discontinuous weighting function.          
+
+\
+
+```{r}
+# MEAN SQUARE ERROR FOR PREDICTION
+fit.knn <- knn.reg(train=TrainData,test=TestData,y=TrainData$bone, k=1, algorithm="kd_tree");
+yobs <- TestData[, 2]
+MSEP.knn <- mean((yobs-fit.knn$pred)^2)
+MSEP.knn
+```
+             
+Given the output above, the prediction mean square error = $25.91247.$
+\
+
+**(b) Apply kernel regression to obtain a nonlinear fit. State what your bandwidth is and how you decide on the choice. Obtain its prediction MSE on $D_2$.**
+
+```{r}
+# Kernel regression smoothing with adaptive local plug-in bandwidth selection.
+library(lokern)
+
+lofit <- lokerns(TrainData$age, TrainData$bone)
+(sb <- summary(lofit$bandwidth))
+op <- par(fg = "gray90", tcl = -0.2, mgp = c(3,.5,0))
+plot(lofit$band, ylim=c(0,3*sb["Max."]), type="h", ann = F, axes = FALSE)
+if(R.version$major > 1 || R.version$minor >= 3.0)
+boxplot(lofit$bandwidth, add = TRUE, at = 304, boxwex = 8,
+    col = "gray90", border="gray", pars = list(axes = FALSE))
+axis(4, at = c(0,pretty(sb)), col.axis = "gray")
+par(op); par(new=TRUE)
+
+plot(bone ~ age, data = TrainData, main = "Local Plug-In Bandwidth Vector")
+lines(lofit$x.out, lofit$est, col=3)
+mtext(paste("bandwidth in [", paste(format(sb[c(1,6)], dig = 3),collapse=","),
+    "];  Median b.w.=",formatC(sb["Median"])))
+
+```
+    
+The bandwidth h is the scaling factor that controls how wide the probability mass is spread around a point and affects the smoothness or roughness of the resultant estimate. The bandwidth is given by the local bandwidth array for kernel regression estimation. In this case, the bandwidth is within the interval $[4.61,7.54]$.                       
+\
+
+```{r}
+# MEAN SQUARE ERROR FOR PREDICTION
+Yhat.Pred.kernel <- predict(lofit, newdata = TestData);
+yobs <- TestData[, 2]
+MSEP.kernel <- mean((yobs-Yhat.Pred.kernel$y)^2)
+MSEP.kernel
+```
+         
+From the output, the prediction mean square error = $1619.398$
+\     
+**(c) Apply local (cubic) polynomial regression to the data. Plot and obtain its prediction MSE on $D_2$.**
+
+```{r,warning=FALSE}
+# Local (Cubic) Polynomial Regression
+library(locpol)
+fit.local <- locpol(bone~age, data=TrainData, deg=3, kernel=EpaK,bw =5)
+
+Yhat.Pred.local <- locpol(bone~age, data=TrainData, xeval=TestData$age, deg=3, kernel=EpaK,bw =6)$lpFit$bone
+```
+     
+The Smoothing parameter, bandwidth chosen is bw = 5.
+     
+\
+```{r}
+plot(TrainData$age, TrainData$bone, xlab = "Age", ylab = "Bone", main="Local (Cubic) Polynomial Regression")
+lines(sort(TrainData$age), fitted(fit.local)[order(TrainData$age)], lty=1, col="navyblue",cex=10)
+```
+    
+Given above is the plot  of Local (Cubic) Polynomial Regression.
+     
+\
+```{r}
+#MEAN SQUARE ERROR FOR PREDICTION
+yobs <- TestData[, 2]
+MSEP.local <- mean((yobs-Yhat.Pred.local)^2)
+MSEP.local
+```
+     
+From the output, the prediction mean square error = $12482.95$
+      
+
+\section{Question 5- Regression/Smoothing Splines}
+
+**(a) Apply regression splines (e.g., natural cubic splines) to model the data. Plot the resultant
+curve and obtain its prediction MSE on $D_2$.**
+
+
+```{r}
+# Natural Cubic Splines
+library(splines)
+attach(TrainData)
+bs(TrainData$age, df = 5)
+fm1 <- lm(bone ~ bs(age, df = 5), degree=3, data = TrainData)
+summary(fm1)
+par(mfrow=c(1,1))
+plot(bone ~ age, data = TrainData, xlab = "Age", ylab = "Bone", main = "Natural Cubic Splines")
+spd <- seq(min(TrainData$age), max(TrainData$age), len = 36)
+lines(sort(TrainData$age), fm1$fitted.values[order(TrainData$age)], lty=1, col=2)
+detach()
+```
+       
+In this case, B-Spline chooses $5$ knots at suitable quantiles of age. 
+\       
+```{r}
+# MEAN SQUARE ERROR FOR PREDICTION
+Yhat.Pred.spline <- predict(fm1,TestData)
+yobs <- TestData[, 2]
+MSEP.spline <- mean((yobs-Yhat.Pred.spline)^2)
+MSEP.spline
+```
+     
+From the output, the prediction mean square error = $263.8793$.
+\
+     
+**(b) Apply smoothing splines. Comment on how you determine the tuning parameter. Plot
+the resultant curve and obtain its prediction MSE on $D_2$.**
+
+
+```{r}
+# Smoothing Splines
+plot(TrainData$age, TrainData$bone, main = "Smoothing Splines")
+fitopt <- smooth.spline(TrainData$age, TrainData$bone);fitopt
+lines(fitopt, col = "navyblue")
+
+```
+         
+Given this scenario, the generalized cross-validation (GCV) was used for the smoothing parameter estimation and a tuning parameter df = $5.750337$ was used.
+      
+\
+```{r}
+# MEAN SQUARE ERROR FOR PREDICTION
+Yhat.Pred.smooth <- predict(fitopt,TestData$age)
+yobs <- TestData[, 2]
+MSEP.smooth <- mean((yobs-Yhat.Pred.smooth$y)^2)
+MSEP.smooth
+```
+
+Given the output, the prediction mean square error = $275.0591$.
+\
+
+\section{Question 6- Prediction MSE Results}
+      
+**Tabulate all the prediction MSE measures. Which methods give favorable results?**
+
+```{r}
+Measure <- c(MSEP.ex,MSEP.knn,MSEP.kernel,MSEP.local,MSEP.spline,MSEP.smooth)
+Measures <- data.frame("Method"= c("Asymptotic exponential model","KNN regression","Kernel regression","Local cubic polynomial","Natural cubic spline","Smoothing Splines"), "Prediction MSE Measures"= Measure)
+knitr::kable(Measures, align = "lc")
+```
+The KNN regression method gives the favorable results from the output above.     
+\

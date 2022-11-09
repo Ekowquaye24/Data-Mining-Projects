@@ -1,0 +1,305 @@
+---
+output: 
+  pdf_document:
+    keep_tex: true
+    fig_caption: true
+    latex_engine: pdflatex
+    number_sections: true
+    toc: true
+title: "Project IV (PageRank and Anomaly Detection)"
+author: 
+- Quaye E, George
+date: "Due: 10/19/2020"
+geometry: margin=1in
+fontsize: 10pt
+spacing: double
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsfonts}
+- \usepackage{amsthm}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhf{}
+- \rhead{George Quaye}
+- \lhead{PageRank and Anomaly Detection}
+- \cfoot{\thepage}
+
+
+---
+\newpage
+\section{Problem 1: PageRank}
+
+
+Based on the links in Figure 1, obtain the link matrix L and then accordingly compute the PageRank score for each webpage. Provide a barplot of the PageRank score.
+Which pages come to the top-3 list?
+
+
+```{r}
+# The Link Matrix Link
+L <- matrix(c(0, 1, 0, 0, 0, 0, 0,
+0, 0, 0, 1, 1, 0, 0,
+1, 0, 0, 0, 0, 1, 0, 
+1, 0, 1, 0, 1, 1, 0, 
+0, 0, 0, 1, 0, 0, 0, 
+0, 0, 0, 0, 0, 0, 0, 
+0, 0, 0, 0, 1, 1, 0), nrow = 7, ncol = 7, byrow = F) 
+colnames(L)<-c("A","B","C","D","E","F","G")
+row.names(L)<-c("A","B","C","D","E","F","G")
+
+L
+```
+
+The matrix Link is made up of a $7 \times 7$ square matrix.
+
+```{r, message=FALSE}
+#Plot of the Link Matrix
+
+library(igraph)
+graph <- graph_from_adjacency_matrix(L)
+par(mfrow=c(1,1), mar=rep(4,4))
+plot(graph)
+#plot(graph, layout=layout_with_fr, vertex.size=20, 
+#    vertex.label.dist=2, vertex.color="lightblue", edge.arrow.size=0.5)
+```
+The plot above is to confirmed my link matrix L from the question.
+
+
+```{r}
+pagerank <- function(G, method='eigen',d=.85,niter=100){
+  cvec <- apply(G,2,sum) 
+  cvec[cvec==0] <- 1 
+  n <- nrow(G)
+  delta <- (1-d)/n
+  A <- matrix(delta,nrow(G),ncol(G))
+  for (i in 1:n)   A[i,] <- A[i,] + d*G[i,]/cvec
+#  print(A)
+  if (method=='power'){
+    x <- rep(1,n)
+    for (i in 1:niter) x <- A%*%x
+  } else {
+    x <- Re(eigen(A)$vector[,1])
+  }
+  x/sum(x)
+}
+
+```
+
+
+
+```{r}
+#Computing the PageRank score for each webpage
+pg <- pagerank(L, method='power')
+sum(pg) 
+```
+
+```{r}
+pg <- data.frame("WebPage"= c("A","B","C","D","E","F","G"), "PageRank"= pg)
+pg
+```
+
+```{r}
+#Barplot of the PageRank score.
+barplot(pg$PageRank, names= pg$WebPage, col="cadetblue", xlab="Webpage", ylab="PageRank", main="PageRank Score for Each Webpage")
+```
+
+The Bar plot above shows the PageRank scores, It is observed that Web page D has the highest PageRank score and Web page G has the least PageRank score. Implying that page D holds lot of information to access and more visits compared to that of page G.
+
+
+```{r}
+#The top-3 list PageRank score
+Top3 <- pg[ order(pg$PageRank, decreasing = TRUE), ]
+head(Top3, n=3)
+```
+
+The top 3 list pages based on the page rank scores are Webpages D, E and B with $27.2$%, $17.8$% and $15.5$% respectively from the outputs above.
+
+
+\section{Problem 2: Anomaly Detection}
+
+We consider the HTP (high tech part) data available from R Package ICSOutlier. This data set contains the results of $p = 88$ numerical tests for $n = 902$ high-tech parts. Based on these results the producer considered all parts functional and all of them were sold. However two parts, 581 and 619, showed defects in use and were returned to the manufacturer. These two observations can thus be considered as outliers and the objective is to detect them by re-examining the test data.
+
+(a) Bring in the data with the following R code:
+
+```{r ,message=FALSE}
+library("ICSOutlier")
+data(HTP)
+dat <- HTP; dim(dat); head(dat)
+outliers.true <- c(581, 619)
+
+```
+
+The data has 88 columns with 6 rows.
+
+(b) First obtain robust estimates of the mean vector $\hat{\mu}$ and the VCOV matrix $\hat{\sum}$ of the data with MCD with a breakdown point of your choice. 
+
+
+```{r}
+
+library(robustbase)
+# Obtain MCD estimates with a breakdown point of 15%
+fit.robust <- covMcd(dat, cor = FALSE, alpha = 0.85)
+```
+
+A breakdown point of $15\%$ is used.
+
+
+```{r}
+# Robust estimates of the mean vector for 15 variables:
+Mean_vector <- fit.robust$center
+Mean_vector[1:15]
+```
+
+Given above is the first 15 $\hat{\mu}$ for the robust estimates.
+
+
+```{r}
+# Robust estimates of the VCOV matrix
+Cov_matrix <- fit.robust$cov
+Cov_matrix[1:15]
+
+```
+
+Given above is the first 15 $\hat{\sum}$ for the robust estimates.
+
+
+Computing the robust Mahalanobis distance of each observation with respect to the MCD estimates and plot them. You may add a threshold based on the $\chi^2(p)$ distribution and highlight the two defective parts.
+
+```{r}
+#Robust squared Mahalanobis distance
+Mahalanobis_Dist <- mahalanobis(dat,Mean_vector,Cov_matrix)
+head(Mahalanobis_Dist)
+
+# Cut-off based on the chi-square distribution
+cutoff.chi.sq <- qchisq(0.975, df = ncol(dat)); cutoff.chi.sq
+
+# Another Cut-off Suggested by Green and Martin (2014)
+library("CerioliOutlierDetection")
+n <- nrow(dat); p <- ncol(dat)
+cutoff.GM <- hr05CutoffMvnormal(n.obs = n, p.dim=p, mcd.alpha = 0.75,
+	signif.alpha = 0.025, method = "GM14",
+	use.consistency.correction = TRUE)$cutoff.asy
+cutoff.GM 
+```
+
+```{r}
+# PLOT THE RESULTS
+colPoints <- ifelse(Mahalanobis_Dist >= min(c(cutoff.chi.sq, cutoff.GM)), 1, grey(0.5))
+pchPoints <- ifelse(Mahalanobis_Dist >= min(c(cutoff.chi.sq, cutoff.GM)), 16, 4)
+
+plot(seq_along(Mahalanobis_Dist), Mahalanobis_Dist, pch = pchPoints, col = colPoints,
+	ylim=c(0, max(Mahalanobis_Dist, cutoff.chi.sq, cutoff.GM) + 2), cex.axis = 0.7, cex.lab = 0.7,
+	ylab = expression(Mahalanobis_Dist**2), xlab = "Observation Number")
+
+abline(h = c(cutoff.chi.sq, cutoff.GM), lty = c("dashed", "dotted"), col=c("blue", "red"))
+
+legend("topleft", lty = c("dashed", "dotted"), cex = 0.5, ncol = 1, bty = "n",
+legend = c(expression(paste(chi[p]**2, " cut-off")), "GM cut-off"), col=c("blue", "red"))
+text(619, Mahalanobis_Dist[619], labels=619, col=619)
+text(581, Mahalanobis_Dist[581], labels=581, col=581)
+```
+
+The threshold used are based on the chi-square distribution and another suggested by Green and Martin (2017). From the plot above we observe that the two defective parts are in the top list of potential outliers (ie 619, 581).
+
+
+(c) Apply isolation forest (iForest), local outlier factor (LOF), and, optionally, one-class SVM for the same task. Choose the involved parameters appropriately based on your own judgment. Plot the results and compare. Comment on the similarities and differences of their results. In particular, pay attention to whether the two defective parts are deemed anomalies by each method.
+
+```{r}
+#Isolation Forest
+
+#install.packages("IsolationForest", repos="http://R-Forge.R-project.org")
+
+library(IsolationForest)
+
+#Building isolation trees
+Tree1 <- IsolationTrees(dat, rFactor=0)
+
+#Evaluate anomaly score
+anomaly_score <- AnomalyScore(dat,Tree1); 
+
+# show anomaly score
+Ascore <- anomaly_score$outF;
+
+# PLOT OF THE SCORES
+par(mfrow=c(1,1), mar=rep(4,4))
+plot(x=1:length(Ascore), Ascore, type="p", pch=1, 
+	main="Anomaly Score via iForest",
+    	xlab="id", ylab="score", cex=Ascore*5, col="coral1")
+add.seg <- function(x) segments(x0=x[1], y0=0, x1=x[1], y1=x[2], 
+	lty=1, lwd=1.5, col="navyblue")
+apply(data.frame(id=1:length(Ascore), score=Ascore), 1, FUN=add.seg)
+eps <- 0.98
+id.outliers <- which(Ascore > quantile(Ascore, eps))
+text(id.outliers, Ascore[id.outliers]+0.003, label=id.outliers, 
+	col="deepskyblue1", cex=0.7) 
+
+```
+
+With probability of 0.98, it is observe from the plot that the two defective parts 581 and 619 are included in the top list of potential or expected outliers.
+
+
+
+```{r, message=FALSE}
+# LOF - Local Outlier Factor
+
+library(Rlof)
+outlier.scores <- lof(dat, k=5);
+which(outlier.scores > quantile(outlier.scores, 0.95))
+
+# PLOT OF THE LOF SCORES
+score <- scale(outlier.scores, center = min(outlier.scores), 
+	scale = max(outlier.scores)-min(outlier.scores)) # NORMALIZED TO RANGE[0,1]
+par(mfrow=c(1,1), mar=rep(4,4))
+plot(x=1:length(score), score, type="p", pch=1, 
+	main="Local Outlier Factor (LOF)",
+    	xlab="id", ylab="LOF", cex=score*5, col="coral1")
+add.seg <- function(x) segments(x0=x[1], y0=0, x1=x[1], y1=x[2], 
+	lty=1, lwd=1.5, col="navyblue")
+apply(data.frame(id=1:length(score), score=score), 1, FUN=add.seg)
+eps <- 0.98
+id.outliers <- which(outlier.scores > quantile(outlier.scores, eps))
+text(id.outliers, score[id.outliers]+0.02, label=id.outliers, 
+	col="deepskyblue1", cex=0.7) 
+```
+
+The LOF finds anomalous data points by measuring the local deviation of the data point with respect to its neighbors. Given this problem, a size of the neighborhood ($k=5$) is used. From the graph, we see that the two defective parts 581 and 619 are indeed anomalies since they're perfectly detected.
+
+
+Comparison:
+
+```{r}
+par(mfrow=c(1,2), mar=rep(4,4))
+# LOC
+plot(x=1:length(score), score, type="p", pch=1, 
+	main="Local Outlier Factor (LOF)",
+    	xlab="id", ylab="LOF", cex=score*5, col="coral1")
+add.seg <- function(x) segments(x0=x[1], y0=0, x1=x[1], y1=x[2], 
+	lty=1, lwd=1.5, col="navyblue")
+apply(data.frame(id=1:length(score), score=score), 1, FUN=add.seg)
+eps <- 0.98
+id.outliers <- which(outlier.scores > quantile(outlier.scores, eps))
+text(id.outliers, score[id.outliers]+0.02, label=id.outliers, 
+	col="deepskyblue1", cex=0.7) 
+
+
+# iForest
+plot(x=1:length(Ascore), Ascore, type="p", pch=1, 
+	main="Anomaly Score via iForest",
+    	xlab="id", ylab="score", cex=Ascore*5, col="coral1")
+add.seg <- function(x) segments(x0=x[1], y0=0, x1=x[1], y1=x[2], 
+	lty=1, lwd=1.5, col="navyblue")
+apply(data.frame(id=1:length(Ascore), score=Ascore), 1, FUN=add.seg)
+eps <- 0.98
+id.outliers <- which(Ascore > quantile(Ascore, eps))
+text(id.outliers, Ascore[id.outliers]+0.003, label=id.outliers, 
+	col="deepskyblue1", cex=0.7) 
+
+
+```
+
+
+Comparing the LOF and iForest methodologies for detecting potential outliers, It is observed from both plots that the parts 581 and 619 are indeed anomalies. Since they were among the list of potential or expected outliers for the two methods. The LOF was able to adequately detect the defective parts compared to the iForest methodology as evident in the plot above. From the LOF plot the "correct outliers" are clearly seperated from list of other potential outliers, this is not the case for iForest. Thus we conclude that in this situation or scenario, the anomaly detection using iForest is weaker compared to LOF .
+
+
+
+

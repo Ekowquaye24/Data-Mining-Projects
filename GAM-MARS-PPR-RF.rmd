@@ -1,0 +1,451 @@
+---
+output: 
+  pdf_document:
+    keep_tex: true
+    fig_caption: true
+    latex_engine: pdflatex
+    number_sections: true
+    toc: true
+title: "Project VI"
+author: 
+- Quaye E. George
+date: "Due: 11/16/2020"
+geometry: margin=1in
+fontsize: 12pt
+spacing: double
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsfonts}
+- \usepackage{amsthm}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhf{}
+- \rhead{George Quaye}
+- \lhead{Project Six}
+- \cfoot{\thepage}
+
+
+---
+\newpage
+
+\section{Data Preparation}
+
+Bring in the data D and name it as, say, hr. Change the categorical
+variable salary in the data set to ordinal:
+
+```{r}
+# Bring in the Data
+hr.Data <- read.table(file="HR_comma_sep.csv",sep=",", header = TRUE)
+colnames(hr.Data)[9]<-"department"
+library(dplyr)
+hr.Data<-hr.Data%>%
+  select(-left,left)
+head(hr.Data)
+```
+```{r}
+hr.Data$salary <- factor(hr.Data$salary, levels=c("low", "medium",
+"high"), ordered=TRUE)
+```
+        
+Inspect if there is any missing values and, if so, handle them with imputation.
+     
+```{r, results=FALSE}
+# INSPECT THE DISTINCT VALUES OF EACH X
+for (j in 1:NCOL(hr.Data)){
+  x <- hr.Data[,j]
+  print(table(x, useNA="ifany"))
+}
+```
+
+```{r}
+# Listing the missing rate for each variable.
+miss.info <- function(dat, filename=NULL){
+  vnames <- colnames(dat); vnames
+  n <- nrow(dat)
+  out <- NULL
+  for (j in 1: ncol(dat)){
+    vname <- colnames(dat)[j]
+    x <- as.vector(dat[,j])
+    n1 <- sum(is.na(x), na.rm=T)
+    n2 <- sum(x=="NA", na.rm=T)
+    n3 <- sum(x=="", na.rm=T)
+    nmiss <- n1 + n2 + n3
+    ncomplete <- n-nmiss
+    out <- rbind(out, c(col.number=j, vname=vname, 
+                        mode=mode(x), n.levels=length(unique(x)), 
+                        ncomplete=ncomplete, miss.perc=nmiss/n))
+  }
+  out <- as.data.frame(out)
+  row.names(out) <- NULL 
+  if (!is.null(filename)) write.csv(out, file = filename, row.names=F)
+  return(out)
+}
+miss.info(hr.Data)
+```
+
+Given the output, there are no missing values from the dataset (hr.Data)
+
+
+\section{Exploratory Data Analysis}
+    
+\subsection{Preliminary Statistical Analysis}
+```{r}
+# Checking the dimension of data
+dim(hr.Data)
+```
+The dataset (hr.Data) contains 10 columns and 14999 observations.            
+
+```{r}
+# Check the type of our features. 
+str(hr.Data)
+```
+         
+From the output above, it is indicated that among all the predictors, 2 are continuous; 5 are categorical and the remaining other 3 variables are integer counts.
+          
+
+```{r}
+#Percentage of employees who stayed and those who left
+prop.table(table(hr.Data$left))*100
+```
+          
+Given the above output, it is observed that about 76% of employees stayed and 24% of employees left. 
+          
+```{r}
+# Overview of summary (Turnover V.S. Non-turnover)
+
+cor_vars<-hr.Data[,c("satisfaction_level","last_evaluation","number_project","average_montly_hours","time_spend_company","Work_accident","left","promotion_last_5years")]
+
+aggregate(cor_vars[,c("satisfaction_level","last_evaluation","number_project","average_montly_hours","time_spend_company","Work_accident","promotion_last_5years")], by=list(Category=cor_vars$left), FUN=mean)
+
+```
+           
+It is observed that the mean satisfaction of employees is 0.66 as against 0.44.
+       
+\subsection{Correlation Matrix and Heat Map}
+
+```{r}
+#Correlation Matrix
+library(reshape2)
+library(ggplot2)
+cor_vars<-hr.Data[,c("satisfaction_level","last_evaluation","number_project","average_montly_hours","time_spend_company","Work_accident","left","promotion_last_5years")]
+cor(cor_vars)
+trans<-cor(cor_vars)
+melted_cormat <- melt(trans)
+
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+Given the correlation matrix output table, it is observed that;       
+                        
+i.    Number of projects and average monthly hours are moderately positive correlated features (0.417210634).
+ii.   Turnover(left) and satisfaction level are moderately negative correlated features (-0.38837498).
+iii.  Last evaluation and number of project are moderately positive correlated features (0.349332589).
+iv.   Last evaluation and average monthly hours are moderately positive correlated features (0.339741800).
+              
+Also by the heat map, there is a positive correlation between number of project, average monthly hours, and evaluation. This may indicate that the employees who spent more hours and did more projects were evaluated on high. Again, For the negative relationships, turnover and satisfaction are highly correlated. This implies that people tend to leave the company more when they are less satisfied.                    
+           
+\subsection{Salary V.S. Turnover}
+
+```{r}
+vis_1<-table(hr.Data$salary,hr.Data$left)
+d_vis_1<-as.data.frame(vis_1)
+print(d_vis_1)
+library(ggplot2)
+p<-ggplot(d_vis_1, aes(x=Var1,y=Freq,fill=Var2)) +
+ geom_bar(position="dodge",stat='identity')
+
+print(p)
+
+```
+             
+Given the plot above, it is observed that majority of employees who left either had low or medium salary.
+It is awkward for any employee with high salary to leave. Therefore employees with low to average salaries tend to leave the company mostly.
+                  
+\subsection{Department V.S. Turnover}
+
+```{r}
+vis_2<-table(hr.Data$department,hr.Data$left)
+d_vis_2<-as.data.frame(vis_2)
+d_vis_2<-subset(d_vis_2,Var2==1)
+library(ggplot2)
+d_vis_2$Var1 <- factor(d_vis_2$Var1, levels = d_vis_2$Var1[order(-d_vis_2$Freq)])
+p<-ggplot(d_vis_2, aes(x=Var1,y=Freq,fill=Var1)) +
+ geom_bar(stat='identity') +theme(axis.text.x = element_text(angle = 90, hjust = 1))
+print(p)
+```
+           
+By the graphical output above sales, technical, and support department were the top 3 departments to have employee turnover  whiles the management department had the smallest amount of turnover.             
+        
+\section{Data Partitioning}
+
+```{r}
+#Partitioning of Data
+partition.scale <- function(dat, xcols, percent.train=0.67, seed=0, scale=FALSE){
+  set.seed(seed)
+  n <- NROW(dat)
+  id.train <- sample(1:n, trunc(n*percent.train), replace=FALSE)
+  train <- dat[id.train,]; test <- dat[-id.train,]
+
+  if (scale) {
+    X.train <- train[, xcols]; X.test <- test[, xcols]
+    scale.train <- scale(train[, xcols], center=TRUE, scale = TRUE)
+    train[, xcols] <- as.data.frame(scale.train)
+    test[, xcols] <- as.data.frame(scale(test[, xcols], 
+                         center=attributes(scale.train)$`scaled:center`,
+                         scale=attributes(scale.train)$`scaled:scale`))
+  }
+  return(list(train=train, test=test))
+}
+```
+         
+```{r}
+xcols <-1:9
+ps <- partition.scale(dat=hr.Data, xcols=xcols, percent.train=0.67, seed=123)
+TrainData <- ps$train; TestData <- ps$test 
+dim(TrainData); dim(TestData) 
+```
+         
+The dataset is partitioned with the TrainData having $10049$ observations whiles the TestData had $4950$.
+       
+\section{Methodology}
+         
+In the steps to follow, we will train several classifiers with D1 and then apply each trained
+model on D2 to predict whether an employee will quit his/her current position or its likelihood.
+For each approach, obtain the ROC curve and the corresponding AUC based on the prediction
+on D2:       
+
+\subsection{Logistic Regression}
+
+```{r, results=FALSE}
+# Using LASSO
+set.seed(123)
+library(glmnet)
+X <- model.matrix(object=~ satisfaction_level + number_project +  time_spend_company +
+factor(department) + last_evaluation +  average_montly_hours + Work_accident + promotion_last_5years + factor(salary), data=TrainData)
+y <- TrainData$left
+fit.lasso <- glmnet(x=X, y=y, family="binomial", alpha=1, 
+	lambda.min = 1e-4, nlambda = 300, standardize=T, thresh = 1e-07, 
+	maxit=3000)
+plot(fit.lasso)
+CV <- cv.glmnet(x=X, y=y, family="binomial", alpha = 1, 
+	lambda.min = 1e-4, nlambda = 300, standardize = T, thresh = 1e-07, 
+	maxit=3000)
+CV
+plot(CV)
+
+```
+     
+Given the output graph of the LASSO, two models were found to be statistically significant but due to the law of parsimony the model with 14 variables is chosen.        
+          
+
+```{r}
+# SELECTING THE BEST TUNING PARAMETER
+b.lambda <- CV$lambda.1se; b.lambda  # THE BEST lamdba WITH 1SE RULE
+fit.lasso <- glmnet(x=X, y=y, family="binomial", alpha = 1, 
+	lambda=b.lambda, standardize = T, thresh = 1e-07, 
+	maxit=1000)
+names(fit.lasso)
+fit.lasso$beta
+fit.pen.lasso <- glm(factor(left) ~ satisfaction_level + number_project   + time_spend_company + 
+department + last_evaluation +  average_montly_hours + Work_accident + promotion_last_5years + salary, 
+family = binomial, data=TrainData)
+```
+         
+The tuning parameter was selected by using the largest value of lambda such that error is within 1 standard error of the minimum. From the graph above we observe that 14 variables are selected with this choice of lamdba (obtained via cross validation). 
+                   
+```{r}
+summary(fit.pen.lasso)
+```
+
+          
+Obtaining the 95% confidence intervals for coeffcients $\beta_j$ 's:
+
+```{r,warning=FALSE}
+confint(fit.pen.lasso, level=0.95)
+```
+
+Estimating(Obtaining) the associated odds ratio and the 95% confidence intervals for the odds ratio:
+
+```{r}
+exp(cbind(OR = coef(fit.pen.lasso), confint(fit.pen.lasso)))
+```
+         
+From the above, All the variables which excludes 1 in the CI are significant.
+
+Interpretation of odds ratio for satisfaction level: The estimated odds for satisfaction_level is exp(-4.1198868 ) =  0.01624635 . For each increase in 1 unit of satisfaction_level, the estimated odds of an employee turnover decreases by a factor of 0.016 regardless of the other predictors.
+                   
+ROC Curve:         
+```{r, warning= FALSE, message= FALSE}
+library(cvAUC)
+library(verification)
+n <- NROW(TestData)
+yobs <- TestData$left
+yhat.lasso <- predict(fit.pen.lasso, newdata=TestData, type="response")
+AUC.lasso  <- ci.cvAUC(predictions=yhat.lasso, labels=yobs, folds=1:n, confidence=0.95); AUC.lasso
+mod.glm <- verify(obs=yobs, pred=yhat.lasso)
+roc.plot(mod.glm, plot.thres = NULL, main="ROC Curve from LASSO")
+text(x=0.5, y=0.2, paste("Area under ROC =", round(AUC.lasso$cvAUC, digits=3),
+	sep=" "), col="cadetblue", cex=1.2)
+```
+The LASSO gives the area under ROC value of 0.822.
+              
+\subsection{Random Forest}
+```{r, warning= FALSE, message= FALSE}
+library(randomForest)
+fit.rf <- randomForest(factor(left) ~., data=TrainData,importance=TRUE, proximity=TRUE, ntree=400)
+fit.rf; 
+yhat.Random <- predict(fit.rf, newdata=TestData, type="prob")[, 2]
+```
+
+
+```{r}
+# VARIABLE IMPORTANCE RANKING
+round(importance(fit.rf), 2)
+varImpPlot(fit.rf, main="Variable Importance Ranking")
+
+# PARTIAL DEPENDENCE PLOT
+par(mfrow=c(2,2))
+partialPlot(fit.rf, pred.data=TrainData, x.var=satisfaction_level, rug=TRUE)
+partialPlot(fit.rf, pred.data=TrainData, x.var=number_project, rug=TRUE)
+partialPlot(fit.rf, pred.data=TrainData, x.var=average_montly_hours, rug=TRUE)
+partialPlot(fit.rf, pred.data=TrainData, x.var=last_evaluation, rug=TRUE)
+
+```
+                      
+Based on the MeanDecreaseAccuracy, the top two variables according to the variable importance ranking for random forest are satisfaction_level and number_project. The least significant variable is promotion_last_5years.
+                         
+```{r}
+AUC.RF <- roc.area(obs=yobs, pred=yhat.Random)$A
+mod.rf <- verify(obs=yobs, pred=yhat.Random)
+roc.plot(mod.rf, plot.thres = NULL, col="red", main="ROC Curve from Random Forest")
+text(x=0.7, y=0.2, paste("Area under ROC =", round(AUC.RF, digits=4), 
+	sep=" "), col="cadetblue", cex=1.2)
+```
+The RF gives the area under ROC value of 0.9939.
+                           
+\subsection{Generalized Additive Model}
+```{r,warning=FALSE,message=FALSE}
+library(gam)
+fit.gam <- gam( left ~ satisfaction_level + number_project +   + time_spend_company + 
+department + last_evaluation +  average_montly_hours + Work_accident + promotion_last_5years 
++ salary , family = binomial, 
+	data=TrainData, trace=TRUE, 
+	control = gam.control(epsilon=1e-04, bf.epsilon = 1e-04, maxit=50, bf.maxit = 50))
+summary(fit.gam)
+yhat.gam <- predict(fit.gam, newdata=TestData, type="response", se.fit=FALSE)
+```
+
+Model Selection:
+ 
+```{r}
+# STEPWISE SELECTION
+fit.step <- step.Gam(fit.gam, scope=list("satisfaction_level"=~1 +satisfaction_level + lo(satisfaction_level),
+				"last_evaluation"=~1+ last_evaluation + lo(last_evaluation)+ s(last_evaluation , 2), 
+				"number_project"=~1 + number_project + s(number_project, 2) + s(number_project, 4),
+					"average_montly_hours"=~1 + average_montly_hours + s(average_montly_hours, 2) + s(average_montly_hours, 4),
+	"time_spend_company"=~1 + time_spend_company + s(time_spend_company, 2) + s(time_spend_company, 4)),
+			scale =2, steps=1000, parallel=TRUE, direction="both")
+summary(fit.step)
+```
+
+
+```{r}
+yhat.gam <- predict(fit.step, newdata=TestData, type="response", se.fit=FALSE)
+AUC.GAM <- roc.area(obs=yobs, pred=yhat.gam)$A
+mod.gam <- verify(obs=yobs, pred=yhat.gam)
+roc.plot(mod.gam, plot.thres = NULL, col="red", main="ROC Curve from GAM")
+text(x=0.7, y=0.2, paste("Area under ROC =", round(AUC.GAM, digits=4), 
+	sep=" "), col="cadetblue", cex=1.2)
+```
+The GAM gives the area under ROC value of 0.9592.        
+                   
+Plotting the (nonlinear) functional forms for continuous predictors.
+```{r, message=F, warning=F}
+par(mfrow=c(2,3))
+plot(fit.step, se =TRUE)
+```
+            
+Each smoothing parameter was determined adaptively in the backfitting algorithm. In this scenario since  smoothing splines are used, optimization of the tuning parameter is automatically done via minimum GCV.Also Stepwise selection with AIC was used  to do the variable selection.
+                              
+\subsection{Multivariate Adaptive Regression Splines}            
+
+```{r,warning=FALSE,message=FALSE}
+library("earth")
+library(ggplot2)   # plotting
+library(caret)     # automating the tuning process
+library(vip)       # variable importance
+library(pdp)       # variable relationships
+fit.mars <- earth(left ~ .,  data = TrainData, degree=3,
+	glm=list(family=binomial(link = "logit")))
+print(fit.mars) 
+summary(fit.mars) %>% .$coefficients %>% head(10)
+```
+
+```{r , message=F, warning= FALSE}
+# VARIABLE IMPORTANCE PLOT
+vip(fit.mars, num_features = 10, bar = FALSE) + ggtitle("GCV")
+```
+           
+Given the graph, the two top important variables is satisfaction level and number of projects. This implies satisfaction level and number of projects are the two top variables that predict employee detention or turnover.       
+     
+```{r, warning= FALSE}
+# PARTIAL DEPENDENCE PLOT
+par(mfrow=c(1,2))
+partial(fit.mars, pred.var = "satisfaction_level", grid.resolution = 10)%>%autoplot()
+partial(fit.mars, pred.var = "last_evaluation", grid.resolution = 10)%>%autoplot()
+```
+
+```{r, warning= FALSE}
+# PREDICTION
+yhat.mars <- predict(fit.mars, newdata=TestData, type="response")
+AUC.MARS <- ci.cvAUC(predictions=yhat.mars, labels=yobs, folds=1:length(yhat.mars), confidence=0.95); AUC.MARS 
+auc.ci <- round(AUC.MARS$ci, digits=4)
+library(verification)
+mod.mars <- verify(obs=yobs, pred=yhat.mars)
+roc.plot(mod.mars, plot.thres = NULL, main="ROC Curve from MARS")
+text(x=0.6, y=0.2, paste("Area under ROC =", round(AUC.MARS$cvAUC, digits=4),
+	sep=" "), col="cadetblue", cex=1.2)
+
+```
+       
+The MARS gives the area under ROC value of 0.9795.
+   
+\subsection{Project Pursuit Regression}
+```{r}
+fit.ppr <- ppr(left ~ ., sm.method = "supsmu", 
+    data = TrainData, nterms = 2, max.terms = 10, bass=3)
+summary(fit.ppr)
+fit1.ppr <- update(fit.ppr, bass=5, nterms=4)
+summary(fit1.ppr)
+
+```
+
+
+```{r}
+# PREDICTION
+yhat.ppr <- predict(fit1.ppr, newdata=TestData)
+yhat.ppr <- scale(yhat.ppr,center = min(yhat.ppr),scale = max(yhat.ppr)-min(yhat.ppr))
+AUC.PPR <- ci.cvAUC(predictions=yhat.ppr, labels=yobs, folds=1:length(yhat.ppr), confidence=0.95); AUC.PPR 
+auc.ci <- round(AUC.PPR$ci, digits=4)
+library(verification)
+mod.ppr <- verify(obs=yobs, pred=yhat.ppr)
+roc.plot(mod.ppr, plot.thres = NULL,  main="ROC Curve from PPR")
+text(x=0.6, y=0.2, paste("Area under ROC =", round(AUC.PPR$cvAUC, digits=4), 
+	sep=" "), col="cadetblue", cex=1.2)
+
+```
+The PPR gives the area under ROC value of 0.9657.
+
+\newpage
+            
+\section{Results and Comparison}
+```{r}
+Measure <- c(round(AUC.lasso$cvAUC, digits=3),round(AUC.RF, digits=4),round(AUC.GAM, digits=4),round(AUC.MARS$cvAUC, digits=4),round(AUC.PPR$cvAUC, digits=4))
+Measures <- data.frame("Method"= c("LASSO","Random Forest","GAM","MARS","PPR"), "AUC"= Measure); Measures
+knitr::kable(Measures, align = "lc")
+```
+        
+Given the above results, among all the five supervised learning approaches, Random forest gave the best results (since it provides the largest AUC) of correctly predicting the probability of employee turnovers in the company. Among all the methods, we see that satisfaction level and number of projects are the top two variables that predict an employees turnover or detention.   
+

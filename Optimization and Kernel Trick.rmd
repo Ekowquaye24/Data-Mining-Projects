@@ -1,0 +1,289 @@
+---
+title: "Project II: Optimization and the Kernel Trick"
+author:
+- Quaye, George Ekow
+#date: "Due 9/28/2020"
+output:
+  pdf_document:
+    fig_caption: yes
+    keep_tex: yes
+    latex_engine: xelatex
+    number_sections: yes
+    toc: yes
+    toc_depth: 4
+  word_document:
+    toc: yes
+    toc_depth: '4'
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsfonts}
+- \usepackage{amsthm}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhf{}
+- \rhead{Data Mining 2}
+- \lhead{Optimization and the Kernel Trick}
+- \cfoot{\thepage}
+- \usepackage{algorithm}
+- \usepackage[noend]{algpseudocode}
+geometry: margin=1in
+spacing: single
+fontsize: 10pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+\
+\newpage
+
+$1)$
+\section {Bringing in the data}
+**1. Bring the data into R (or Python)**
+\
+```{r}
+#Reading the data
+data <- read.table(file = "Shill Bidding Dataset.csv",sep=",", header = T, na.strings = c("NA", "", " "), 
+                   stringsAsFactors = T)
+dim(data)
+head(data)
+```
+The data set has 6321 observations with 13 variables.
+\
+\subsection{Taking out the first three columns}
+```{r}
+data<-data[-c(1:3)]
+head(data)
+dim(data)
+```
+The first three columns are removed since they are just ID's, leaving the data  set with a dimension of 6321 observations and 10 columns. 
+\
+\subsection{Changing the value 0 to -1}
+```{r}
+data$Class[data$Class==0]<--1
+head(data)
+```
+For the purpose of a logistics modeling the zero value of the response has been changed to -1.
+\
+\section{Exploratory Data Analysis (EDA)}
+\subsection{Distinct values of variable}
+```{r}
+str(data)
+```
+With the exception of Auction_Duration which is an integer value by structure, all the other 9 variables are numeric.
+\
+```{r}
+sapply(data, function(x) length(unique(x)))
+```
+\
+The numerical variables Class and  Successive_outbidding has few distinct values.
+\
+\subsection{Missing data and imputation}
+```{r}
+# MISSING PERCENTAGES FOR ALL COLUMNS (OR VARIABLES)
+colMeans(is.na(data))
+```
+There appears to be no missing values in the data indicated by the  output above.
+\
+\subsection{Parallel boxplot of predictors}
+```{r}
+boxplot(data, col = c(1:9), horizontal = F)
+```
+\
+Given the boxplot there appears to be unequal variations between the predictors variable and unequal range noticeably is the Auction_Duration and Successive_outbidding hence scaling is necessary for some particular modelings.
+
+\subsection{Bar plot of the Binary response}
+```{r}
+library(ggplot2)
+c<-ggplot(data,aes(Class)) + geom_bar()
+c
+```
+\
+A bar plot is drawn to check the distribution of the target variable 'Class' and to ascertain whether or not there exist a balance or unbalanced classification, given the output above there appears to be an unbalanced classification with -1 having a by far higher percentage then 1 shown by the bars from the plot.
+
+**Note:** This unbalanced classifiers can be balanced. The main objective of balancing classes is to either increasing the frequency of the minority class or decreasing the frequency of the majority class. This is done in order to obtain approximately the same number of instances for both the classes. Noticeable methods are Random Under-Sampling, Random Over-Sampling, Cluster-Based Over Sampling, Bagging Based techniques for imbalanced data etc.
+
+\
+\section{Data Partitioning}
+```{r}
+#Partitioning of Data
+set.seed(125)
+n <- NROW(data)
+id.split <- sample(x=1:3,size = n, replace = TRUE, prob = c(0.5,0.25,0.25))
+TrainData <- data[id.split==1, ]
+ValidData <- data[id.split==2, ]
+TestData  <-  data[id.split==3, ]
+dim(TrainData); dim(ValidData); dim(TestData)
+```
+The data set is partitioned for the purposed of training, validating and testing. with the TrainData ,ValidData and TestData having 3171,1596,1554 observations respectively.
+\
+\section{Logistic Regression - Optimization}
+```{r}
+new_data<-rbind(TrainData,ValidData)
+head(new_data)
+dim(new_data)
+```
+The combined Train and Validation is labeled  new_data with 4767 observations and 10 variables.
+\
+```{r}
+#THE NEGATIVE LOGLIKEHOOD FUNCTION FOR Y=+1/-1
+nloglik <- function(beta, X, y){
+	if (length(unique(y)) !=2) stop("Are you sure you've got Binary Target?") 
+	X <- cbind(1, X)
+	nloglik <- sum(log(1+ exp(-y*X%*%beta)))
+	return(nloglik) 
+}
+```
+\
+```{r}
+y <- new_data$Class
+X <- as.matrix(new_data[, c(1:9)])
+p <- NCOL(X) +1
+fit <- optim(par=rep(0,p), fn=nloglik, method="BFGS",hessian=T, X=X, y=y)
+estimate <- fit$par; estimate
+```
+The output above indicates the Beta estimates for each predictor variables.
+
+```{r}
+D<-solve(fit$hessian) # Obtaining the inverse of the covariance matrix
+SE<-sqrt(diag(D)) # Standard errors 
+```
+\
+```{r}
+tval<-fit$par/SE # testing for each attributes .
+pval<-2*(1-pt(abs(tval),nrow(X)-ncol(X))) # P_values for each betas
+results<-cbind(fit$par,SE,tval,pval)
+colnames(results)<-c("Beta","SE","t_value","P_value")
+rownames(results)<-c("beta0","beta1","beta2","beta3","beta4","beta5","beta6","beta7","beta8","beta9")
+print(results,digits=3)
+```
+Given $alpha$=$0.05$ and the $p_values$ from test it is noticed that Bidder_Tendency,Successive_Outbidding,Winning_Ratio are statistically significant with $p_values$ < $0.05$. The optimization method used here is the 'BFGS'.
+\
+```{r}
+fit$convergence
+```
+There is a successive convergence in the algorithm given that it converges to $zero$.
+\
+\subsection{Comparing to Standard R function glm()}
+\
+```{r}
+dat<-new_data[,-c(10)]
+dat$y <- ifelse(new_data$Class ==-1,0,1)
+fit.logit <- glm(y~., data=dat, family=binomial(link = "logit"))
+data.frame(fit.logit$coef)
+```
+By comparing the coefficients obtained in glm() to that of 4(a) there appears to be no differences in the values.
+
+```{r}
+fit.logit$converged
+```
+Also the algorithm in the glm() model converges.
+
+\subsection{Predicting with Test Data (D3)}
+\
+```{r}
+
+my_sigmoid<-function(z){
+  1/(1+exp(-z))
+}
+
+t_tdata=TestData
+G<-as.matrix(cbind(1,t_tdata[,-c(10)]))
+t_tdata$fitted_result=my_sigmoid(G%*%fit$par)
+t_tdata$fitted_result_class=ifelse(t_tdata$fitted_result>=0.5, 1,0)
+
+accuracy=sum(t_tdata$Class==t_tdata$fitted_result_class)/(nrow(t_tdata))
+accuracy
+
+```
+The prediction accuracy with a threshold of $0.5$ is $9.07$%. This small prediction accuracy might be as a result of the unbalanced classification of the response variable.
+\
+\section{Primitive LDA – The Kernel Trick}
+\subsection{Scaling Required Data}
+```{r}
+X1<-as.matrix(TrainData[-c(10)])
+X2<-as.matrix(ValidData[-c(10)])
+X3<-as.matrix(TestData[-c(10)])
+```
+
+```{r}
+scaledX1<-scale(X1, center = T, scale = T)
+```
+
+
+```{r}
+#attributes(scaledX1)
+```
+
+```{r}
+mu0<-attributes(scaledX1)$`scaled:center`
+sd0<-attributes(scaledX1)$`scaled:scale`
+
+scaledX2<-scale(X2, center = mu0, scale = sd0)
+```
+$X2$ is scaled with the mean and standard deviation of $X1$.
+\
+```{r}
+y<- TrainData[,c(10)]
+x11<-cbind(scaledX1,y)
+```
+\
+b)
+\subsection{Obtaining prediction accuracy with Laplace Kernel Family}
+```{r}
+library(kernlab)
+sigma <- 1:20
+pred_acc<-rep(0, length(sigma))
+for (i in 1: length(sigma)){
+  s=sigma[i]
+  kern<- laplacedot(sigma = s)
+  
+  w.z<-  colMeans(kernelMatrix(kernel = kern,x=x11[y==1, ], y=(cbind(scaledX2, ValidData[,c(10)]))))-
+    colMeans(kernelMatrix(kernel = kern,x=x11[y==-1, ],y=(cbind(scaledX2, ValidData[,c(10)]))))
+  
+  b<-0.5*(mean(kernelMatrix(kernel = kern,x=x11[y==-1, ], y=(cbind(scaledX2, ValidData[,c(10)]))))) - 
+    mean(colMeans(kernelMatrix(kernel = kern,x=x11[y==1, ], y=(cbind(scaledX2, ValidData[,c(10)])))))
+  tab<- table(sign(w.z+b),ValidData[,c(10)]);tab
+  pred_accuracy<- sum(diag(tab))/sum(tab)
+  pred_acc[i]<-pred_accuracy
+  cat("The prediction accuracy is \n", pred_accuracy, "\n")
+}
+laplacedot()
+```
+A laplace kernel family was used, the parameter $sigma$ was set between $1:20$. The hyper parameter obtained from this algorithm was $sigma$=$1$ with a prediction accuracy of $93.61$%.
+
+\
+\subsection{Plot of the prediction accuracy values versus the candidate parameter values.}
+```{r}
+plot(sigma,pred_acc,type="h",col="blue")
+```
+\
+From the plot above its confirms that the best laplace parameter to be used is $sigma$=$1$.
+\
+\subsection{Applying the best Kernel to Training and Validation data }
+```{r}
+Dprime<-rbind(TrainData,ValidData)
+Xprime<-Dprime[,-c(10)]
+scaled_Xprime<-scale(Xprime, center = T, scale=T)
+
+mu1<-attributes(scaled_Xprime)$`scaled:center`
+sd1<-attributes(scaled_Xprime)$`scaled:scale`
+
+scaledX3<-scale(X3, center = mu1, scale = sd1)
+```
+
+```{r}
+  kern<- laplacedot(sigma = 1)
+  
+  w.z<-  colMeans(kernelMatrix(kernel = kern,x=x11[y==1, ], y=(cbind(scaledX3, TestData[,c(10)]))))-
+    colMeans(kernelMatrix(kernel = kern,x=x11[y==-1, ],y=(cbind(scaledX3, TestData[,c(10)]))))
+  
+  b<-0.5*(mean(kernelMatrix(kernel = kern,x=x11[y==-1, ], y=(cbind(scaledX3, TestData[,c(10)]))))) - 
+    mean(colMeans(kernelMatrix(kernel = kern,x=x11[y==1, ], y=(cbind(scaledX3, TestData[,c(10)])))))
+  tab<- table(sign(w.z+b),TestData[,c(10)]);#tab
+  pred.accuracy<- sum(diag(tab))/sum(tab)
+ # pred.accuracy
+  cat("The prediction accuracy is \n", pred.accuracy, "\n")
+```
+After applying the best kernel laplace parameter (sigma=1) to the combined TrainData and ValidData to form $D'$, the prediction accuracy obtained was $94.14$% which is $85.34$% more than the prediction accuracy obtained in $4(c)$ which was $9.07$%. Hence the kernel family gives more prediction accuracy.
